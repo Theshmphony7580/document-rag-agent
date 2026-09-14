@@ -4,4 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "langchain-core>=1.6.3",
+    "langgraph>=1.2.11",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "qdrant-client>=1.19.0",
+]
