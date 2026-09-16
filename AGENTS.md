@@ -114,14 +114,16 @@ document-rag/
     ├── agent/
     │   ├── __init__.py                # Agent module
     │   ├── state.py                   # LangGraph RAGState TypedDict
+    │   ├── prompts.py                 # [Planned] Node prompt templates (grade, rewrite, generate, refusal)
+    │   ├── llm.py                     # [Planned] Groq / Gemini REST inference client
     │   ├── nodes.py                   # [Planned] retrieve, grade, generate, rewrite
     │   └── graph.py                   # [Planned] StateGraph assembly & compilation
     ├── ingestion/
     │   ├── __init__.py                # Ingestion module
-    │   ├── embeddings.py              # Gemini text-embedding-004 + mock fallback
+    │   ├── embeddings.py              # Gemini gemini-embedding-001 (768-dim) + mock fallback
     │   ├── parser.py                  # Docling parser (do_ocr=False) + HierarchicalChunker
     │   ├── pipeline.py                # IngestionPipeline orchestrator (SHA-256 deduplication)
-    │   └── vision.py                  # VLM figure captioner (prompt placeholder empty)
+    │   └── vision.py                  # VLM figure captioner (Forensic prompt + Gemini Vision)
     └── storage/
         ├── __init__.py                # Storage module
         └── vector_store.py            # QdrantVectorStore disk adapter
@@ -141,8 +143,11 @@ document-rag/
 | [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Gemini embeddings (`gemini-embedding-001`) + deterministic mock fallback |
 | [`src/ingestion/parser.py`](src/ingestion/parser.py) | Done | Docling parser (`do_ocr=False`) + VLM diagram integration + text fallback |
 | [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) | Done | Ingestion orchestrator (`ingest_file`) with SHA-256 deduplication |
-| [`src/agent/nodes.py`](src/agent/nodes.py) | Planned | LangGraph node functions (`retrieve`, `grade`, `generate`, `rewrite`) |
-| [`src/agent/graph.py`](src/agent/graph.py) | Planned | StateGraph compilation with conditional self-correction edge |
+| [`src/agent/prompts.py`](src/agent/prompts.py) | Done | Centralized node prompt templates (grade, rewrite, generate, fallback refusal) |
+| [`src/agent/llm.py`](src/agent/llm.py) | Done | Unified Groq / Gemini REST inference client with offline mock fallback |
+| [`src/agent/nodes.py`](src/agent/nodes.py) | Done | LangGraph node functions (`retrieve`, `grade`, `generate`, `rewrite`) |
+| [`src/agent/graph.py`](src/agent/graph.py) | Done | StateGraph compilation with conditional self-correction edge |
+| [`test_agent_graph.py`](test_agent_graph.py) | Done | Root integration test for LangGraph reasoning loop & self-correction |
 
 ---
 
@@ -162,4 +167,11 @@ document-rag/
 - [x] Implemented [`src/ingestion/parser.py`](src/ingestion/parser.py) with Docling `HierarchicalChunker` & metadata.
 - [x] Implemented [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) orchestrator with SHA-256 deduplication.
 - [x] Ingestion pipeline smoke test executed and verified on local disk (parsing, deduplication, vector search).
-- [ ] **NEXT:** Scaffold and implement LangGraph nodes in `src/agent/nodes.py`.
+- [x] Ingestion milestone committed to git (`58db129` - "ingestion pipelined fineshed moving to nodes desing").
+- [x] Implemented [`src/agent/prompts.py`](src/agent/prompts.py) with structured templates for all nodes.
+- [x] Implemented [`src/agent/llm.py`](src/agent/llm.py) with Groq & Gemini REST APIs and offline mock fallback.
+- [x] Implemented [`src/agent/nodes.py`](src/agent/nodes.py) with `retrieve`, `grade`, `rewrite`, and `generate` nodes.
+- [x] Implemented [`src/agent/graph.py`](src/agent/graph.py) assembling `StateGraph(RAGState)` with self-correcting conditional edge.
+- [x] Created root test suite [`test_agent_graph.py`](test_agent_graph.py) covering high confidence, query rewrites, and graceful refusal.
+- [ ] **NEXT STEP:** Execute `uv run python test_agent_graph.py` inside `.venv` to verify end-to-end reasoning loop.
+
