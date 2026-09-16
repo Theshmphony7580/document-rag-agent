@@ -46,7 +46,11 @@ class GeminiEmbedder:
         """Call Google Gemini batchEmbedContents endpoint via httpx."""
         url = f"{self.base_url}/models/{self.model}:batchEmbedContents?key={self.api_key}"
         requests_payload = [
-            {"model": f"models/{self.model}", "content": {"parts": [{"text": t}]}}
+            {
+                "model": f"models/{self.model}",
+                "content": {"parts": [{"text": t}]},
+                "outputDimensionality": self.vector_dim,
+            }
             for t in texts
         ]
         payload = {"requests": requests_payload}

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # --- Google Gemini Configuration ---
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
-    GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     GEMINI_EMBEDDING_DIM: int = 768
 
     # --- Qdrant Vector Database (Local Disk Default) ---

@@ -161,5 +161,5 @@ document-rag/
 - [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) with live Gemini REST & offline mock.
 - [x] Implemented [`src/ingestion/parser.py`](src/ingestion/parser.py) with Docling `HierarchicalChunker` & metadata.
 - [x] Implemented [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) orchestrator with SHA-256 deduplication.
-- [ ] **NEXT:** Run smoke test / verification on document ingestion pipeline.
-- [ ] **Deferred:** Implement LangGraph nodes (`src/agent/nodes.py`) and graph (`src/agent/graph.py`).
+- [x] Ingestion pipeline smoke test executed and verified on local disk (parsing, deduplication, vector search).
+- [ ] **NEXT:** Scaffold and implement LangGraph nodes in `src/agent/nodes.py`.

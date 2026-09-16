@@ -23,7 +23,8 @@ class QdrantVectorStore:
         self.vector_dim = settings.GEMINI_EMBEDDING_DIM
 
         # Disk storage preferred over in-memory for persistent document RAG
-        if url or settings.QDRANT_URL:
+        self.is_remote = bool(url or settings.QDRANT_URL)
+        if self.is_remote:
             target_url = url or settings.QDRANT_URL
             target_key = api_key or settings.QDRANT_API_KEY
             self.client = QdrantClient(url=target_url, api_key=target_key)
@@ -51,12 +52,13 @@ class QdrantVectorStore:
                     distance=models.Distance.COSINE,
                 ),
             )
-            # Create payload keyword index on doc_hash for instantaneous deduplication checks
-            self.client.create_payload_index(
-                collection_name=target_collection,
-                field_name="doc_hash",
-                field_schema=models.PayloadSchemaType.KEYWORD,
-            )
+            # Create payload keyword index only in server mode (local disk mode does not need/support it)
+            if self.is_remote:
+                self.client.create_payload_index(
+                    collection_name=target_collection,
+                    field_name="doc_hash",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
 
     def has_doc_hash(
         self,
@@ -189,3 +191,10 @@ class QdrantVectorStore:
             ),
             wait=True,
         )
+
+    def close(self) -> None:
+        """Explicitly close the Qdrant local storage connection."""
+        try:
+            self.client.close()
+        except Exception:
+            pass
