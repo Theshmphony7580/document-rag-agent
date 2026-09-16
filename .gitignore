@@ -10,4 +10,5 @@ wheels/
 .venv
 *.env
 *.excalidraw
-
+gemini_models_supported.txt
+list_gemini_models.py

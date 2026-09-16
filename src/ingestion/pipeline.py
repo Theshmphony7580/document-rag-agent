@@ -1,18 +1,11 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-try:
-    from schemas import DocumentChunk
-    from storage.vector_store import QdrantVectorStore
-    from ingestion.parser import DocumentParser, compute_file_sha256
-    from ingestion.embeddings import GeminiEmbedder
-    from ingestion.vision import VLMVisionCaptioner
-except ImportError:
-    from schemas import DocumentChunk
-    from storage.vector_store import QdrantVectorStore
-    from ingestion.parser import DocumentParser, compute_file_sha256
-    from ingestion.embeddings import GeminiEmbedder
-    from ingestion.vision import VLMVisionCaptioner
+from schemas import DocumentChunk
+from storage.vector_store import QdrantVectorStore
+from ingestion.parser import DocumentParser, compute_file_sha256
+from ingestion.embeddings import GeminiEmbedder
+from ingestion.vision import VLMVisionCaptioner
 
 
 @dataclass
@@ -43,9 +36,9 @@ class IngestionPipeline:
         vision_captioner: Optional[VLMVisionCaptioner] = None,
     ):
         self.vector_store = vector_store or QdrantVectorStore()
-        self.parser = parser or DocumentParser()
-        self.embedder = embedder or GeminiEmbedder()
         self.vision_captioner = vision_captioner or VLMVisionCaptioner()
+        self.parser = parser or DocumentParser(vision_captioner=self.vision_captioner)
+        self.embedder = embedder or GeminiEmbedder()
 
     def ingest_file(self, file_path: str, force_reindex: bool = False) -> IngestionResult:
         """Run the ingestion pipeline for a single file."""

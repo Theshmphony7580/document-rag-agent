@@ -4,12 +4,8 @@ from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient, models
 
-try:
-    from schemas import DocumentChunk
-    from config import get_settings
-except ImportError:
-    from schemas import DocumentChunk
-    from config import get_settings
+from schemas import DocumentChunk
+from config import get_settings
 
 
 class QdrantVectorStore:

@@ -11,7 +11,7 @@
 - **Project:** Enterprise Document RAG Agent
 - **Core Orchestrator:** LangGraph state graph with dynamic self-correction loops
 - **Vector Database:** Qdrant (local `:memory:` / directory / remote server)
-- **Embedding Model:** Google Gemini (`text-embedding-004`, 768-dim) with deterministic local test fallback
+- **Embedding Model:** Google Gemini (`gemini-embedding-001` / `gemini-embedding-2`, 768-dim) with deterministic local test fallback
 - **Inference Models:** Groq (`llama-3.3-70b-versatile`) & Google Gemini (`gemini-2.5-flash`)
 - **Document Parsing:** IBM Docling (`HierarchicalChunker` + `TableFormer`) & Gemini Vision for figures
 - **Package Manager:** `uv` with Python 3.12+
@@ -47,7 +47,7 @@
                                                                   │
                                                                   ▼
                                                        [Gemini Dense Embedder]
-                                                        (text-embedding-004)
+                                                        (gemini-embedding-001)
                                                                   │
                                                                   ▼
                                                          [Qdrant Vector DB]
@@ -87,7 +87,7 @@
 
 | Resource / Key | Purpose | Required For Ingestion? | Default / Fallback |
 |---|---|---|---|
-| `GEMINI_API_KEY` | Dense embeddings (`text-embedding-004`) + VLM chart summaries | **Yes** | Local mock embedder available for offline testing |
+| `GEMINI_API_KEY` | Dense embeddings (`gemini-embedding-001`) + VLM chart summaries | **Yes** | Local mock embedder available for offline testing |
 | `GROQ_API_KEY` | Fast LLM inference (Llama 3.3) | No (Deferred to Agent phase) | None |
 | `QDRANT_PATH` | Vector store backend on local disk | **Yes** | `"./qdrant_data"` (auto-created on disk) |
 | `QDRANT_API_KEY` | Qdrant Cloud auth token | Optional | Empty for local disk |
@@ -103,6 +103,7 @@ document-rag/
 ├── .env.example                       # Environment variable templates
 ├── .gitignore                         # Git ignore file (excludes qdrant_data/, .venv)
 ├── AGENTS.md                          # Context, rules & progress tracking
+├── list_gemini_models.py              # Root utility: list available Gemini models & types
 ├── prd.md                             # Original system PRD & technical architecture
 ├── pyproject.toml                     # uv project & dependency definitions
 ├── qdrant_data/                       # Local Qdrant disk storage (auto-created)
@@ -128,6 +129,7 @@ document-rag/
 
 ### Component Status
 |---|---|---|
+| [`list_gemini_models.py`](list_gemini_models.py) | Done | Root utility to list all models & capabilities for GEMINI_API_KEY |
 | [`pyproject.toml`](pyproject.toml) | Done | Project dependencies managed via `uv` |
 | [`.env.example`](.env.example) | Done | Environment variable templates (Groq, Gemini, Qdrant on disk) |
 | [`.vscode/settings.json`](.vscode/settings.json) | Done | Interpreter and import search paths |
@@ -135,9 +137,9 @@ document-rag/
 | [`src/agent/state.py`](src/agent/state.py) | Done | LangGraph `RAGState` TypedDict definition |
 | [`src/config.py`](src/config.py) | Done | Settings loader via `pydantic-settings` |
 | [`src/storage/vector_store.py`](src/storage/vector_store.py) | Done | Qdrant disk client adapter (ensure_collection, upsert, search) |
-| [`src/ingestion/vision.py`](src/ingestion/vision.py) | Done | VLM figure captioner (prompt placeholder empty for now) |
-| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Gemini embeddings (`text-embedding-004`) + deterministic mock fallback |
-| [`src/ingestion/parser.py`](src/ingestion/parser.py) | Done | Docling parser (`do_ocr=False`) + metadata enrichment + text fallback |
+| [`src/ingestion/vision.py`](src/ingestion/vision.py) | Done | VLM figure captioner (Forensic Document Intelligence prompt + Gemini Vision) |
+| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Gemini embeddings (`gemini-embedding-001`) + deterministic mock fallback |
+| [`src/ingestion/parser.py`](src/ingestion/parser.py) | Done | Docling parser (`do_ocr=False`) + VLM diagram integration + text fallback |
 | [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) | Done | Ingestion orchestrator (`ingest_file`) with SHA-256 deduplication |
 | [`src/agent/nodes.py`](src/agent/nodes.py) | Planned | LangGraph node functions (`retrieve`, `grade`, `generate`, `rewrite`) |
 | [`src/agent/graph.py`](src/agent/graph.py) | Planned | StateGraph compilation with conditional self-correction edge |
@@ -154,7 +156,8 @@ document-rag/
 - [x] Architected document ingestion pipeline (Docling chunking, SHA-256 hashing, metadata schema, `do_ocr=False`).
 - [x] Implemented [`src/config.py`](src/config.py) with Pydantic settings loading disk paths.
 - [x] Implemented [`src/storage/vector_store.py`](src/storage/vector_store.py) with Qdrant disk storage and `doc_hash` index.
-- [x] Implemented [`src/ingestion/vision.py`](src/ingestion/vision.py) with empty prompt placeholder for future tuning.
+- [x] Implemented [`src/ingestion/vision.py`](src/ingestion/vision.py) with finalized Forensic Document Intelligence prompt.
+- [x] Standardized root imports across `src/` to align with project layout and eliminate linter warnings.
 - [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) with live Gemini REST & offline mock.
 - [x] Implemented [`src/ingestion/parser.py`](src/ingestion/parser.py) with Docling `HierarchicalChunker` & metadata.
 - [x] Implemented [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) orchestrator with SHA-256 deduplication.

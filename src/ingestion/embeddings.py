@@ -4,10 +4,7 @@ from typing import List, Optional
 
 import httpx
 
-try:
-    from config import get_settings
-except ImportError:
-    from config import get_settings
+from config import get_settings
 
 
 class GeminiEmbedder:
