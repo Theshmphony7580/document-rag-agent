@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     GEMINI_EMBEDDING_DIM: int = 768
 
+    # --- Local Hugging Face Embedding Configuration ---
+    EMBEDDING_PROVIDER: str = "huggingface"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+    EMBEDDING_DIM: int = 768
+    EMBEDDING_DEVICE: str = "cpu"
+
     # --- Qdrant Vector Database (Local Disk Default) ---
     QDRANT_PATH: str = "./qdrant_data"
     QDRANT_URL: Optional[str] = None
@@ -29,7 +35,7 @@ class Settings(BaseSettings):
     # --- Ingestion & RAG Tuning ---
     DO_OCR: bool = False
     CONFIDENCE_THRESHOLD: float = 0.70
-    RETRIEVAL_TOP_K: int = 4
+    RETRIEVAL_TOP_K: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

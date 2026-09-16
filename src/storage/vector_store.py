@@ -20,7 +20,7 @@ class QdrantVectorStore:
     ):
         settings = get_settings()
         self.collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
-        self.vector_dim = settings.GEMINI_EMBEDDING_DIM
+        self.vector_dim = getattr(settings, "EMBEDDING_DIM", settings.GEMINI_EMBEDDING_DIM)
 
         # Disk storage preferred over in-memory for persistent document RAG
         self.is_remote = bool(url or settings.QDRANT_URL)

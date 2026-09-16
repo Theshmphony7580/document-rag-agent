@@ -11,7 +11,7 @@
 - **Project:** Enterprise Document RAG Agent
 - **Core Orchestrator:** LangGraph state graph with dynamic self-correction loops
 - **Vector Database:** Qdrant (local `:memory:` / directory / remote server)
-- **Embedding Model:** Google Gemini (`gemini-embedding-001` / `gemini-embedding-2`, 768-dim) with deterministic local test fallback
+- **Embedding Model:** Local Hugging Face (`BAAI/bge-base-en-v1.5`, 768-dim) via `sentence-transformers` (with Gemini API & deterministic test fallbacks)
 - **Inference Models:** Groq (`llama-3.3-70b-versatile`) & Google Gemini (`gemini-2.5-flash`)
 - **Document Parsing:** IBM Docling (`HierarchicalChunker` + `TableFormer`) & Gemini Vision for figures
 - **Package Manager:** `uv` with Python 3.12+
@@ -87,8 +87,9 @@
 
 | Resource / Key | Purpose | Required For Ingestion? | Default / Fallback |
 |---|---|---|---|
-| `GEMINI_API_KEY` | Dense embeddings (`gemini-embedding-001`) + VLM chart summaries | **Yes** | Local mock embedder available for offline testing |
-| `GROQ_API_KEY` | Fast LLM inference (Llama 3.3) | No (Deferred to Agent phase) | None |
+| `LOCAL_EMBEDDING_MODEL` | Local Hugging Face embeddings via `sentence-transformers` | **Yes** | `"BAAI/bge-base-en-v1.5"` (768-dim, CPU/CUDA) |
+| `GEMINI_API_KEY` | VLM chart summaries + optional Gemini embeddings fallback | Optional | Offline mock available for testing |
+| `GROQ_API_KEY` | Fast LLM inference (Llama 3.3) | No (Deferred to Agent phase) | Offline mock available for testing |
 | `QDRANT_PATH` | Vector store backend on local disk | **Yes** | `"./qdrant_data"` (auto-created on disk) |
 | `QDRANT_API_KEY` | Qdrant Cloud auth token | Optional | Empty for local disk |
 | `QDRANT_COLLECTION_NAME` | Target collection name | **Yes** | `"knowledge_chunks"` (auto-created if missing) |
@@ -140,7 +141,7 @@ document-rag/
 | [`src/config.py`](src/config.py) | Done | Settings loader via `pydantic-settings` |
 | [`src/storage/vector_store.py`](src/storage/vector_store.py) | Done | Qdrant disk client adapter (ensure_collection, upsert, search) |
 | [`src/ingestion/vision.py`](src/ingestion/vision.py) | Done | VLM figure captioner (Forensic Document Intelligence prompt + Gemini Vision) |
-| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Gemini embeddings (`gemini-embedding-001`) + deterministic mock fallback |
+| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Local Hugging Face (`BAAI/bge-base-en-v1.5`, 768-dim) + Gemini & mock fallbacks |
 | [`src/ingestion/parser.py`](src/ingestion/parser.py) | Done | Docling parser (`do_ocr=False`) + VLM diagram integration + text fallback |
 | [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) | Done | Ingestion orchestrator (`ingest_file`) with SHA-256 deduplication |
 | [`src/agent/prompts.py`](src/agent/prompts.py) | Done | Centralized node prompt templates (grade, rewrite, generate, fallback refusal) |
@@ -163,7 +164,7 @@ document-rag/
 - [x] Implemented [`src/storage/vector_store.py`](src/storage/vector_store.py) with Qdrant disk storage and `doc_hash` index.
 - [x] Implemented [`src/ingestion/vision.py`](src/ingestion/vision.py) with finalized Forensic Document Intelligence prompt.
 - [x] Standardized root imports across `src/` to align with project layout and eliminate linter warnings.
-- [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) with live Gemini REST & offline mock.
+- [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) supporting local Hugging Face `BAAI/bge-base-en-v1.5` (768-dim), Gemini REST, and offline mock.
 - [x] Implemented [`src/ingestion/parser.py`](src/ingestion/parser.py) with Docling `HierarchicalChunker` & metadata.
 - [x] Implemented [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) orchestrator with SHA-256 deduplication.
 - [x] Ingestion pipeline smoke test executed and verified on local disk (parsing, deduplication, vector search).
@@ -172,6 +173,7 @@ document-rag/
 - [x] Implemented [`src/agent/llm.py`](src/agent/llm.py) with Groq & Gemini REST APIs and offline mock fallback.
 - [x] Implemented [`src/agent/nodes.py`](src/agent/nodes.py) with `retrieve`, `grade`, `rewrite`, and `generate` nodes.
 - [x] Implemented [`src/agent/graph.py`](src/agent/graph.py) assembling `StateGraph(RAGState)` with self-correcting conditional edge.
+- [x] Configured local Hugging Face embedding model (`BAAI/bge-base-en-v1.5`, 768 dimensions) via `sentence-transformers` in `pyproject.toml`, `config.py`, and `embeddings.py`.
 - [x] Created root test suite [`test_agent_graph.py`](test_agent_graph.py) covering high confidence, query rewrites, and graceful refusal.
-- [ ] **NEXT STEP:** Execute `uv run python test_agent_graph.py` inside `.venv` to verify end-to-end reasoning loop.
+- [ ] **NEXT STEP:** Run `uv sync` to install `sentence-transformers` and execute `uv run python test_agent_graph.py` inside `.venv`.
 

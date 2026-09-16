@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 from schemas import DocumentChunk
 from config import get_settings
 from storage.vector_store import QdrantVectorStore
-from ingestion.embeddings import GeminiEmbedder
+from ingestion.embeddings import HuggingFaceEmbedder, GeminiEmbedder, get_embedder
 from agent.state import RAGState
 from agent.prompts import (
     GRADE_SYSTEM_PROMPT,
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def retrieve_node(
     state: RAGState,
     vector_store: Optional[QdrantVectorStore] = None,
-    embedder: Optional[GeminiEmbedder] = None,
+    embedder: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Retrieve top-k relevant document chunks from the vector store using dense vector similarity."""
     settings = get_settings()
@@ -46,10 +46,10 @@ def retrieve_node(
         return {"retrieved_chunks": []}
 
     vs = vector_store or QdrantVectorStore()
-    emb = embedder or GeminiEmbedder()
+    emb = embedder or get_embedder()
 
     try:
-        query_vector = emb.embed_text(active_query)
+        query_vector = emb.embed_text(active_query, is_query=True)
         chunks = vs.search(query_vector=query_vector, top_k=settings.RETRIEVAL_TOP_K)
         return {"retrieved_chunks": chunks}
     except Exception as e:
