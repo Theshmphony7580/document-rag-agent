@@ -7,6 +7,7 @@ Defaults to local execution using Hugging Face's `BAAI/bge-base-en-v1.5` via `se
 import hashlib
 import logging
 import math
+import threading
 from typing import List, Optional
 
 import httpx
@@ -15,9 +16,17 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
+_GLOBAL_EMBEDDER = None
+_EMBEDDER_LOCK = threading.RLock()
+
 
 class HuggingFaceEmbedder:
     """Local dense embedding model using Hugging Face sentence-transformers."""
+
+    _shared_model = None
+    _shared_model_name: Optional[str] = None
+    _shared_device: Optional[str] = None
+    _lock = threading.RLock()
 
     def __init__(
         self,
@@ -32,25 +41,52 @@ class HuggingFaceEmbedder:
         self._model = None
 
     def _load_model(self):
-        """Lazy-load the SentenceTransformer model on first embedding request."""
-        if self._model is None:
+        """Load and cache the SentenceTransformer model once across the process."""
+        with HuggingFaceEmbedder._lock:
+            if (
+                HuggingFaceEmbedder._shared_model is None
+                or HuggingFaceEmbedder._shared_model_name != self.model_name
+                or HuggingFaceEmbedder._shared_device != self.device
+            ):
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    print(f"[HuggingFaceEmbedder] Loading local embedding model '{self.model_name}' onto {self.device}...")
+                    try:
+                        # Fast offline load without checking Hugging Face remote repository
+                        HuggingFaceEmbedder._shared_model = SentenceTransformer(
+                            self.model_name, device=self.device, local_files_only=True
+                        )
+                    except Exception:
+                        HuggingFaceEmbedder._shared_model = SentenceTransformer(
+                            self.model_name, device=self.device
+                        )
+                    HuggingFaceEmbedder._shared_model_name = self.model_name
+                    HuggingFaceEmbedder._shared_device = self.device
+                    print(f"[HuggingFaceEmbedder] Model '{self.model_name}' successfully loaded into memory.")
+                except ImportError:
+                    logger.warning(
+                        "[HuggingFaceEmbedder] 'sentence-transformers' not installed. "
+                        "Falling back to deterministic mock embedding."
+                    )
+                    HuggingFaceEmbedder._shared_model = False
+                except Exception as e:
+                    logger.warning(
+                        f"[HuggingFaceEmbedder] Failed to load '{self.model_name}' ({e}). "
+                        "Falling back to deterministic mock embedding."
+                    )
+                    HuggingFaceEmbedder._shared_model = False
+
+            self._model = HuggingFaceEmbedder._shared_model
+            return self._model
+
+    def warmup(self):
+        """Eagerly load model into memory and perform a dummy encoding to warm up execution paths."""
+        model = self._load_model()
+        if model:
             try:
-                from sentence_transformers import SentenceTransformer
-                logger.info(f"[HuggingFaceEmbedder] Loading local model '{self.model_name}' onto {self.device}...")
-                self._model = SentenceTransformer(self.model_name, device=self.device)
-            except ImportError:
-                logger.warning(
-                    "[HuggingFaceEmbedder] 'sentence-transformers' not installed. "
-                    "Falling back to deterministic mock embedding."
-                )
-                self._model = False
+                model.encode(["system warmup query"], normalize_embeddings=True, show_progress_bar=False)
             except Exception as e:
-                logger.warning(
-                    f"[HuggingFaceEmbedder] Failed to load '{self.model_name}' ({e}). "
-                    "Falling back to deterministic mock embedding."
-                )
-                self._model = False
-        return self._model
+                logger.warning(f"[HuggingFaceEmbedder] Warmup error ({e})")
 
     def embed_text(self, text: str, is_query: bool = False) -> List[float]:
         """Generate 768-dim normalized embedding for a single text."""
@@ -162,14 +198,18 @@ class GeminiEmbedder:
 
 
 def get_embedder():
-    """Factory to instantiate the configured embedding provider."""
-    settings = get_settings()
-    provider = settings.EMBEDDING_PROVIDER.lower()
-    if provider == "huggingface":
-        return HuggingFaceEmbedder()
-    elif provider == "gemini":
-        return GeminiEmbedder()
-    return HuggingFaceEmbedder()
+    """Return the thread-safe singleton instance of the configured embedding provider."""
+    global _GLOBAL_EMBEDDER
+    if _GLOBAL_EMBEDDER is None:
+        with _EMBEDDER_LOCK:
+            if _GLOBAL_EMBEDDER is None:
+                settings = get_settings()
+                provider = settings.EMBEDDING_PROVIDER.lower()
+                if provider == "gemini":
+                    _GLOBAL_EMBEDDER = GeminiEmbedder()
+                else:
+                    _GLOBAL_EMBEDDER = HuggingFaceEmbedder()
+    return _GLOBAL_EMBEDDER
 
 
 # Backward-compatible alias

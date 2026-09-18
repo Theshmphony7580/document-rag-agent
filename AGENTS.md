@@ -22,8 +22,8 @@
 
 ### 1. Agent Reasoning Loop (LangGraph State Machine)
 ```
-[User Query] ──► [retrieve_node] ──► [grade_node] ──┬──► (score >= 0.70 or max retries) ──► [generate_node] ──► [Answer]
-                                                    └──► (score < 0.70 & retry < 1)     ──► [rewrite_node]  ──► [retrieve_node]
+[User Query] ──► [retrieve_node] (Top-15) ──► [rerank_node] (BGE Cross-Encoder Top-4) ──► [grade_node] ──┬──► (score >= 0.70 or max retries) ──► [generate_node] ──► [Answer]
+                                                                                                          └──► (score < 0.70 & retry < 2)     ──► [rewrite_node]  ──► [retrieve_node]
 ```
 
 ### 2. Document Ingestion Pipeline
@@ -115,13 +115,14 @@ document-rag/
     ├── agent/
     │   ├── __init__.py                # Agent module
     │   ├── state.py                   # LangGraph RAGState TypedDict
-    │   ├── prompts.py                 # [Planned] Node prompt templates (grade, rewrite, generate, refusal)
-    │   ├── llm.py                     # [Planned] Groq / Gemini REST inference client
-    │   ├── nodes.py                   # [Planned] retrieve, grade, generate, rewrite
-    │   └── graph.py                   # [Planned] StateGraph assembly & compilation
+    │   ├── prompts.py                 # Centralized prompt templates (grade, rewrite, generate, refusal)
+    │   ├── llm.py                     # Groq / Gemini REST inference client
+    │   ├── reranker.py                # Local BAAI/bge-reranker-base Cross-Encoder reranker
+    │   ├── nodes.py                   # retrieve, rerank, grade, generate, rewrite
+    │   └── graph.py                   # StateGraph assembly & compilation
     ├── ingestion/
     │   ├── __init__.py                # Ingestion module
-    │   ├── embeddings.py              # Gemini gemini-embedding-001 (768-dim) + mock fallback
+    │   ├── embeddings.py              # Local BGE embedding model (768-dim) + Gemini & mock fallbacks
     │   ├── parser.py                  # Docling parser (do_ocr=False) + HierarchicalChunker
     │   ├── pipeline.py                # IngestionPipeline orchestrator (SHA-256 deduplication)
     │   └── vision.py                  # VLM figure captioner (Forensic prompt + Gemini Vision)
@@ -134,11 +135,11 @@ document-rag/
 |---|---|---|
 | [`list_gemini_models.py`](list_gemini_models.py) | Done | Root utility to list all models & capabilities for GEMINI_API_KEY |
 | [`pyproject.toml`](pyproject.toml) | Done | Project dependencies managed via `uv` |
-| [`.env.example`](.env.example) | Done | Environment variable templates (Groq, Gemini, Qdrant on disk) |
+| [`.env.example`](.env.example) | Done | Environment variable templates (Groq, Gemini, Qdrant on disk, Reranker) |
 | [`.vscode/settings.json`](.vscode/settings.json) | Done | Interpreter and import search paths |
 | [`src/schemas.py`](src/schemas.py) | Done | Pydantic contracts (`DocumentChunk`, `QueryRequest`, `QueryResponse`) |
-| [`src/agent/state.py`](src/agent/state.py) | Done | LangGraph `RAGState` TypedDict definition |
-| [`src/config.py`](src/config.py) | Done | Settings loader via `pydantic-settings` |
+| [`src/agent/state.py`](src/agent/state.py) | Done | LangGraph `RAGState` TypedDict definition (including `rerank_scores`) |
+| [`src/config.py`](src/config.py) | Done | Settings loader via `pydantic-settings` (with reranker toggles) |
 | [`src/storage/vector_store.py`](src/storage/vector_store.py) | Done | Qdrant disk client adapter (ensure_collection, upsert, search) |
 | [`src/ingestion/vision.py`](src/ingestion/vision.py) | Done | VLM figure captioner (Forensic Document Intelligence prompt + Gemini Vision) |
 | [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Local Hugging Face (`BAAI/bge-base-en-v1.5`, 768-dim) + Gemini & mock fallbacks |
@@ -146,9 +147,13 @@ document-rag/
 | [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) | Done | Ingestion orchestrator (`ingest_file`) with SHA-256 deduplication |
 | [`src/agent/prompts.py`](src/agent/prompts.py) | Done | Centralized node prompt templates (grade, rewrite, generate, fallback refusal) |
 | [`src/agent/llm.py`](src/agent/llm.py) | Done | Unified Groq / Gemini REST inference client with offline mock fallback |
-| [`src/agent/nodes.py`](src/agent/nodes.py) | Done | LangGraph node functions (`retrieve`, `grade`, `generate`, `rewrite`) |
-| [`src/agent/graph.py`](src/agent/graph.py) | Done | StateGraph compilation with conditional self-correction edge |
-| [`test_agent_graph.py`](test_agent_graph.py) | Done | Root integration test for LangGraph reasoning loop & self-correction |
+| [`src/agent/reranker.py`](src/agent/reranker.py) | Done | Local Cross-Encoder reranker (`BAAI/bge-reranker-base`) with singleton & heuristic fallback |
+| [`src/agent/nodes.py`](src/agent/nodes.py) | Done | LangGraph node functions (`retrieve`, `rerank`, `grade`, `generate`, `rewrite`) |
+| [`src/agent/graph.py`](src/agent/graph.py) | Done | StateGraph compilation with conditional self-correction edge & 2-stage retrieval |
+| [`test_agent_graph.py`](test_agent_graph.py) | Done | Root integration test for LangGraph reasoning loop, 2-stage retrieval & self-correction |
+| [`src/dashboard/server.py`](src/dashboard/server.py) | Done | Lightweight FastAPI REST backend with reranker telemetry & live query execution |
+| [`src/dashboard/static/`](src/dashboard/static/) | Done | Precision Observability Console SPA with reranker circuit node and score badges |
+| [`main.py`](main.py) | Done | Root entry point launching Uvicorn server on http://127.0.0.1:8000 |
 
 ---
 
@@ -175,5 +180,34 @@ document-rag/
 - [x] Implemented [`src/agent/graph.py`](src/agent/graph.py) assembling `StateGraph(RAGState)` with self-correcting conditional edge.
 - [x] Configured local Hugging Face embedding model (`BAAI/bge-base-en-v1.5`, 768 dimensions) via `sentence-transformers` in `pyproject.toml`, `config.py`, and `embeddings.py`.
 - [x] Created root test suite [`test_agent_graph.py`](test_agent_graph.py) covering high confidence, query rewrites, and graceful refusal.
-- [ ] **NEXT STEP:** Run `uv sync` to install `sentence-transformers` and execute `uv run python test_agent_graph.py` inside `.venv`.
-
+- [x] Designed visual concept mockup and detailed implementation plan for Precision Observability Console (anti-purple industrial aesthetic).
+- [x] Implemented backend telemetry service in [`src/dashboard/server.py`](src/dashboard/server.py) with `/api/stats`, `/api/documents`, `/api/ingest`, `/api/upload`, and `/api/query`.
+- [x] Built frontend console in [`src/dashboard/static/`](src/dashboard/static/) (`index.html`, `style.css`, `app.js`) with zero Node.js/npm dependencies.
+- [x] Wired [`main.py`](main.py) to launch Uvicorn development server on port 8000.
+- [x] Converted [`src/storage/vector_store.py`](src/storage/vector_store.py) to a thread-safe singleton (`get_vector_store()`) with `threading.RLock`, completely eliminating `portalocker.exceptions.AlreadyLocked` during concurrent frontend requests.
+- [x] Optimized [`src/ingestion/parser.py`](src/ingestion/parser.py) with `do_table_structure=False`, `generate_picture_images=False`, and single-threaded BLAS (`OPENBLAS_NUM_THREADS=1`), eliminating OpenBLAS memory exhaustion crashes on Windows.
+- [x] Hardened [`src/dashboard/server.py`](src/dashboard/server.py) and [`app.js`](src/dashboard/static/app.js) with structured exception handling, preventing unhandled server crashes during ingestion.
+- [x] Verified server startup and concurrency fix: `/api/stats` and `/api/documents` both returned `200 OK` simultaneously with zero lock contention.
+- [x] Verified model weights loaded successfully (`770/770 [100%]`) without any OpenBLAS memory allocation errors.
+- [x] Ingestion verified on local disk: `taotp.pdf` indexed 376 vectors into Qdrant collection `knowledge_chunks`.
+- [x] LangGraph reasoning pipeline verified in web console: Retrieved 4 chunks, graded relevance at 0.88 (PASS >= 0.70), synthesized grounded answer.
+- [x] Diagnostic logging added to [`src/agent/llm.py`](src/agent/llm.py) with candidate model retries (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `gemini-flash-latest`).
+- [x] Refactored `_generate_mock()` in [`src/agent/llm.py`](src/agent/llm.py) to dynamically extract real sentences and citations from retrieved document chunks matching query terms, eliminating canned placeholder responses.
+- [x] Verified in browser with `browser_subagent`: executed `what are the transformers in 2 lines`, retrieved 4 chunks from `taotp.pdf`, graded relevance at 0.90 (PASS >= 0.70), and produced a precise grounded answer citing `taotp.pdf [p. 1]`.
+- [x] Configured local Cross-Encoder reranker (`BAAI/bge-reranker-base`) with `RERANK_CANDIDATES_K=15` and `RETRIEVAL_TOP_K=4` in `config.py`, `.env.example`, and `.env`.
+- [x] Implemented thread-safe [`src/agent/reranker.py`](src/agent/reranker.py) using `sentence_transformers.CrossEncoder` with `rerank_score` scoring and offline heuristic fallback.
+- [x] Implemented `rerank_node` in [`src/agent/nodes.py`](src/agent/nodes.py) and integrated two-stage retrieval into StateGraph ([`src/agent/graph.py`](src/agent/graph.py)): `retrieve` ➔ `rerank` ➔ `grade` ➔ `generate`.
+- [x] Updated telemetry backend ([`src/dashboard/server.py`](src/dashboard/server.py)) exposing reranker model, candidate counts, execution step tracing, and per-chunk rerank scores.
+- [x] Enhanced frontend console ([`src/dashboard/static/`](src/dashboard/static/)) with dedicated `01.5 // RERANK` circuit node, real-time animation, and dual Cosine/Rerank score badges.
+- [x] Restarted server (`uv run main.py`) running live with BGE Cross-Encoder reranker.
+- [x] Reviewed and verified document chunking strategy: IBM Docling `HierarchicalChunker` (layout-aware, heading breadcrumbs, table preservation) + VLM diagram captioning + paragraph fallback.
+- [x] Eliminated per-query model reload latency: converted `HuggingFaceEmbedder` to process-wide singleton cache with `local_files_only=True` offline fast path and `warmup()`.
+- [x] Added `warmup()` and `local_files_only=True` to `BGEReranker` to bypass Hugging Face network ping overhead.
+- [x] Implemented FastAPI `lifespan` handler in [`src/dashboard/server.py`](src/dashboard/server.py) to pre-warm all models directly into RAM on server startup (`uv run main.py`), delivering instant sub-second queries.
+- [x] Diagnosed reranker loading halt (`MemoryError: `): PyTorch state_dict materialization ran out of heap RAM for the 1.1 GB `bge-reranker-base` model on Windows.
+- [x] Resolved reranker memory crash: switched default model to `BAAI/bge-reranker-small` (130 MB, 8.5x lighter, <200MB RAM) in [`config.py`](src/config.py), [`.env`](.env), and added auto-recovery fallback in [`reranker.py`](src/agent/reranker.py).
+- [ ] **NEXT MILESTONE OPTIONS:**
+  1. **Hybrid Retrieval (Dense + BM25 with Reciprocal Rank Fusion - RRF):** PRD §4 Step 3 parallel sparse + dense retrieval before cross-encoder reranking.
+  2. **Multi-Turn Conversational Memory:** Enable session-scoped chat history in LangGraph state & UI.
+  3. **Intent Classification / Triage Node:** PRD §4 Step 2 routing for document Q&A vs direct extraction vs query decomposition.
+  4. **Continuous RAG Triad Evaluation:** Real-time Context Relevance, Faithfulness, and Answer Relevance scoring in the telemetry console.

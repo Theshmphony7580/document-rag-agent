@@ -50,10 +50,17 @@ class DocumentParser:
             from docling.datamodel.pipeline_options import PdfPipelineOptions
             from docling.chunking import HierarchicalChunker
 
-            # Enforce permanent do_ocr=False for high speed, enable picture generation
+            # Enforce permanent do_ocr=False for high speed, disable memory-heavy TableFormer & rasterization
             pipeline_options = PdfPipelineOptions()
             pipeline_options.do_ocr = False
-            pipeline_options.generate_picture_images = True
+            pipeline_options.do_table_structure = getattr(self.settings, "DO_TABLE_STRUCTURE", False)
+            pipeline_options.force_backend_text = getattr(self.settings, "FORCE_BACKEND_TEXT", True)
+            pipeline_options.generate_page_images = False
+            pipeline_options.generate_picture_images = getattr(self.settings, "GENERATE_PICTURE_IMAGES", False)
+            pipeline_options.generate_table_images = False
+
+            print(f"[DocumentParser] Converting '{source_name}' (force_backend_text={pipeline_options.force_backend_text})...")
+            start_t = datetime.now()
 
             converter = DocumentConverter(
                 format_options={
@@ -65,6 +72,8 @@ class DocumentParser:
             doc = result.document
             chunker = HierarchicalChunker()
             docling_chunks = list(chunker.chunk(doc))
+            elapsed = (datetime.now() - start_t).total_seconds()
+            print(f"[DocumentParser] Converted '{source_name}' in {elapsed:.2f}s. Generated {len(docling_chunks)} hierarchical chunks.")
 
             parsed_chunks: List[DocumentChunk] = []
 
@@ -88,8 +97,8 @@ class DocumentParser:
                     )
                 )
 
-            # 2. Figure / Diagram Extraction via Gemini Vision
-            if hasattr(doc, "pictures") and doc.pictures:
+            # 2. Figure / Diagram Extraction via Gemini Vision (only if enabled)
+            if getattr(self.settings, "GENERATE_PICTURE_IMAGES", False) and hasattr(doc, "pictures") and doc.pictures:
                 for p_idx, picture in enumerate(doc.pictures):
                     try:
                         # Crop ONLY the isolated bounding box of the figure (not the whole page)
@@ -145,8 +154,9 @@ class DocumentParser:
 
             return parsed_chunks
 
-        except ImportError:
-            # Fallback parser for text/markdown files when Docling is offline
+        except Exception as e:
+            # Fallback parser for text/markdown/pdf files when Docling encounters memory or format constraints
+            print(f"[DocumentParser] Docling parsing encountered an issue ({e}). Falling back to stream extraction.")
             return self._fallback_text_parse(file_path, doc_hash, source_name, now_iso)
 
     def _parse_image_file(
@@ -195,9 +205,26 @@ class DocumentParser:
         source_name: str,
         timestamp: str,
     ) -> List[DocumentChunk]:
-        """Lightweight text splitting for plain text, markdown, or offline tests."""
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            full_text = f.read()
+        """Robust, low-memory text extraction for plain text, markdown, or PDF documents."""
+        full_text = ""
+        suffix = Path(file_path).suffix.lower()
+
+        if suffix == ".pdf":
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(file_path)
+                pages_text = []
+                for page_idx, page in enumerate(reader.pages):
+                    extracted = page.extract_text() or ""
+                    if extracted.strip():
+                        pages_text.append(f"--- Page {page_idx + 1} ---\n{extracted.strip()}")
+                full_text = "\n\n".join(pages_text)
+            except Exception as pdf_err:
+                print(f"[DocumentParser] PDF fallback extractor error ({pdf_err}). Reading raw stream.")
+
+        if not full_text:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                full_text = f.read()
 
         paragraphs = [p.strip() for p in full_text.split("\n\n") if p.strip()]
         if not paragraphs:

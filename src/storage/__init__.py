@@ -1,3 +1,3 @@
-from .vector_store import QdrantVectorStore
+from .vector_store import QdrantVectorStore, get_vector_store
 
-__all__ = ["QdrantVectorStore"]
+__all__ = ["QdrantVectorStore", "get_vector_store"]

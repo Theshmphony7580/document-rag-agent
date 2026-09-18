@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enterprise Document RAG // Precision Observability Console</title>
+  
+  <!-- Modern Engineering Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="console-wrapper">
+    
+    <!-- Precision Telemetry Header -->
+    <header class="telemetry-header">
+      <div class="header-brand">
+        <div class="brand-led pulse-online"></div>
+        <div class="brand-text">
+          <span class="system-id">SYS-RAG // v2.1</span>
+          <span class="console-title">PRECISION OBSERVABILITY CONSOLE</span>
+        </div>
+      </div>
+
+      <!-- Telemetry Ticker Ribbon -->
+      <div class="telemetry-ribbon" id="telemetryRibbon">
+        <div class="telemetry-metric">
+          <span class="metric-label">DOCS INGESTED</span>
+          <span class="metric-value mono" id="statTotalDocs">--</span>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span class="metric-label">QDRANT VECTORS</span>
+          <span class="metric-value mono text-emerald" id="statTotalVectors">--</span>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span class="metric-label">LOCAL EMBEDDER</span>
+          <span class="metric-value mono text-ice" id="statEmbedModel">BAAI/bge-base-en-v1.5</span>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span class="metric-label">RERANKER</span>
+          <span class="metric-value mono text-emerald" id="statRerankerModel">bge-reranker-base</span>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span class="metric-label">INFERENCE ENGINE</span>
+          <span class="metric-value mono" id="statLlmModel">Groq Llama 3.3 70B</span>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span class="metric-label">CONFIDENCE GATE</span>
+          <span class="metric-value mono text-amber" id="statThreshold">0.70</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Precision Split Workbench -->
+    <main class="workbench-grid">
+      
+      <!-- Left Column: Cryptographic Document Ledger -->
+      <section class="panel-container ledger-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <span class="panel-icon">▤</span>
+            <h2 class="panel-title">CRYPTOGRAPHIC DOCUMENT LEDGER</h2>
+          </div>
+          <button id="refreshDocsBtn" class="btn-util" title="Rescan data directory">
+            <span class="btn-icon">↻</span> SCAN
+          </button>
+        </div>
+
+        <!-- Direct Upload Zone -->
+        <div class="dropzone-box" id="dropzone">
+          <input type="file" id="fileInput" class="visually-hidden" multiple>
+          <div class="dropzone-content">
+            <span class="dropzone-glyph">⇪</span>
+            <span class="dropzone-text">DROP FILES OR CLICK TO UPLOAD TO <code class="mono text-ice">data/</code></span>
+            <span class="dropzone-hint">PDF, DOCX, TXT, MD with auto-deduplication</span>
+          </div>
+        </div>
+
+        <!-- Document Table -->
+        <div class="ledger-table-wrapper">
+          <table class="ledger-table">
+            <thead>
+              <tr>
+                <th>DOCUMENT & SHA-256</th>
+                <th>SIZE</th>
+                <th>INDEX STATE</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="documentTableBody">
+              <tr>
+                <td colspan="4" class="table-empty mono">Scanning storage repository...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Right Column: State Machine & Query Console -->
+      <section class="panel-container query-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <span class="panel-icon">⚡</span>
+            <h2 class="panel-title">LANGGRAPH REASONING STATE MACHINE</h2>
+          </div>
+          <div class="execution-clock mono" id="executionTimer">READY</div>
+        </div>
+
+        <!-- Query Input Bar -->
+        <form id="queryForm" class="query-input-bar">
+          <div class="input-prefix mono">&gt;</div>
+          <input 
+            type="text" 
+            id="queryInput" 
+            class="query-input" 
+            placeholder="Query indexed enterprise corpus (e.g., 'What embedding model and vector database are used?')" 
+            autocomplete="off"
+            required
+          >
+          <button type="submit" id="submitQueryBtn" class="btn-execute">
+            <span>EXECUTE</span>
+            <span class="btn-shortcut mono">↵</span>
+          </button>
+        </form>
+
+        <!-- Hardware-Styled Circuit State Machine Flow -->
+        <div class="circuit-container">
+          <div class="circuit-rail">
+            
+            <!-- Node: Retrieve -->
+            <div class="circuit-node" id="nodeRetrieve">
+              <div class="node-header">
+                <span class="node-status-led" id="ledRetrieve"></span>
+                <span class="node-label mono">01 // RETRIEVE</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricRetrieve">IDLE</span>
+              </div>
+            </div>
+
+            <div class="circuit-bus-line" id="bus1"></div>
+
+            <!-- Node: Rerank -->
+            <div class="circuit-node" id="nodeRerank">
+              <div class="node-header">
+                <span class="node-status-led" id="ledRerank"></span>
+                <span class="node-label mono">01.5 // RERANK</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricRerank">IDLE</span>
+              </div>
+            </div>
+
+            <div class="circuit-bus-line" id="busRerank"></div>
+
+            <!-- Node: Grade -->
+            <div class="circuit-node" id="nodeGrade">
+              <div class="node-header">
+                <span class="node-status-led" id="ledGrade"></span>
+                <span class="node-label mono">02 // GRADE</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricGrade">SCORE: --</span>
+              </div>
+            </div>
+
+            <div class="circuit-bus-line" id="bus2"></div>
+
+            <!-- Node: Generate -->
+            <div class="circuit-node" id="nodeGenerate">
+              <div class="node-header">
+                <span class="node-status-led" id="ledGenerate"></span>
+                <span class="node-label mono">03 // GENERATE</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricGenerate">IDLE</span>
+              </div>
+            </div>
+
+            <div class="circuit-bus-line" id="bus3"></div>
+
+            <!-- Node: Self-Correction Rewrite (Branch) -->
+            <div class="circuit-node branch-node" id="nodeRewrite">
+              <div class="node-header">
+                <span class="node-status-led" id="ledRewrite"></span>
+                <span class="node-label mono">REWRITE LOOP</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricRewrite">RETRY: 0/2</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Analog Precision Confidence Gauge -->
+        <div class="confidence-gauge-box">
+          <div class="gauge-meta">
+            <span class="gauge-title">RETRIEVAL CONFIDENCE SCORE</span>
+            <span class="gauge-readout mono" id="confidenceReadout">0.00 / 0.70 [IDLE]</span>
+          </div>
+          <div class="gauge-track">
+            <div class="gauge-fill" id="gaugeFill" style="width: 0%;"></div>
+            <div class="gauge-threshold-pin" style="left: 70%;" title="Confidence Gate Threshold (0.70)">
+              <span class="pin-tag mono">0.70 GATE</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grounded Cited Output Box -->
+        <div class="output-container">
+          <div class="output-header">
+            <span class="output-tag mono">GROUNDED SYNTHESIS</span>
+            <span class="output-latency mono" id="outputLatency">-- ms</span>
+          </div>
+          <div class="output-body" id="outputBody">
+            <p class="placeholder-text">Submit an enterprise query to visualize LangGraph node execution and inspect grounded answers.</p>
+          </div>
+        </div>
+
+        <!-- Collapsible Chunk Telemetry Inspector -->
+        <details class="chunk-inspector" id="chunkInspector">
+          <summary class="inspector-summary mono">
+            <span>RAW VECTOR CHUNK INSPECTION</span>
+            <span class="chunk-badge mono" id="chunkBadge">0 CHUNKS</span>
+          </summary>
+          <div class="chunks-list" id="chunksList">
+            <div class="chunk-empty mono">No active vector chunks loaded.</div>
+          </div>
+        </details>
+
+      </section>
+
+    </main>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

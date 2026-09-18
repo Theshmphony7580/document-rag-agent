@@ -1,0 +1,388 @@
+"""FastAPI telemetry server for the Precision Observability Console.
+
+Provides high-density REST endpoints for:
+- System hardware & model configuration
+- Qdrant disk vector store telemetry
+- Cryptographic document ledger & one-click ingestion
+- Step-by-step LangGraph state machine execution tracing
+"""
+
+import os
+
+# Prevent OpenBLAS thread allocation crash on Windows
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+import sys
+from pathlib import Path
+import shutil
+import time
+from typing import Any, Dict, List, Optional
+
+_SRC_DIR = Path(__file__).resolve().parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from config import ROOT_DIR, get_settings
+from storage.vector_store import QdrantVectorStore, get_vector_store
+from ingestion.embeddings import get_embedder
+from ingestion.parser import compute_file_sha256
+from ingestion.pipeline import IngestionPipeline
+from agent.nodes import retrieve_node, rerank_node, grade_node, rewrite_node, generate_node
+from agent.reranker import get_reranker
+from agent.graph import decide_next_step
+from agent.state import RAGState
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Eagerly load and warm up vector store, embedding model, and cross-encoder reranker at startup."""
+    print("\n[Server Lifespan] Preloading and warming up local ML models into RAM...")
+    
+    # 1. Thread-safe Qdrant vector store
+    get_vector_store()
+
+    # 2. Dense embedding model (BGE-base)
+    embedder = get_embedder()
+    if hasattr(embedder, "warmup"):
+        embedder.warmup()
+
+    # 3. Cross-encoder reranker (BGE-reranker)
+    settings = get_settings()
+    if getattr(settings, "USE_RERANKER", True):
+        reranker = get_reranker()
+        if hasattr(reranker, "warmup"):
+            reranker.warmup()
+
+    print("[Server Lifespan] All models preloaded into RAM. Zero query-time model loading latency!\n")
+    yield
+
+
+app = FastAPI(
+    title="Document RAG - Precision Observability Console",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+DATA_DIR = ROOT_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Eagerly initialize single shared instance at module load
+_SHARED_VECTOR_STORE = get_vector_store()
+
+
+class QueryPayload(BaseModel):
+    question: str
+
+
+class IngestPayload(BaseModel):
+    filename: str
+    force_reindex: bool = False
+
+
+@app.get("/api/stats")
+def get_system_stats() -> Dict[str, Any]:
+    """Return real-time telemetry from Qdrant vector database and system configuration."""
+    settings = get_settings()
+    vector_store = get_vector_store()
+
+    try:
+        col_info = vector_store.client.get_collection(vector_store.collection_name)
+        total_vectors = col_info.points_count or 0
+    except Exception:
+        total_vectors = 0
+
+    # Count files in data directory
+    data_files = [f for f in DATA_DIR.iterdir() if f.is_file() and not f.name.startswith(".")]
+
+    return {
+        "total_documents": len(data_files),
+        "total_vectors": total_vectors,
+        "vector_dim": vector_store.vector_dim,
+        "distance_metric": "Cosine",
+        "collection_name": vector_store.collection_name,
+        "qdrant_path": str(settings.QDRANT_PATH),
+        "embedding_provider": settings.EMBEDDING_PROVIDER,
+        "embedding_model": settings.LOCAL_EMBEDDING_MODEL,
+        "embedding_device": settings.EMBEDDING_DEVICE,
+        "use_reranker": getattr(settings, "USE_RERANKER", True),
+        "reranker_model": getattr(settings, "RERANKER_MODEL", "BAAI/bge-reranker-base"),
+        "rerank_candidates_k": getattr(settings, "RERANK_CANDIDATES_K", 15),
+        "llm_provider": settings.LLM_PROVIDER,
+        "llm_model": settings.GROQ_MODEL if settings.LLM_PROVIDER == "groq" else settings.GEMINI_MODEL,
+        "confidence_threshold": settings.CONFIDENCE_THRESHOLD,
+        "retrieval_top_k": settings.RETRIEVAL_TOP_K,
+        "status": "ONLINE",
+    }
+
+
+@app.get("/api/documents")
+def list_documents() -> List[Dict[str, Any]]:
+    """Scan data/ folder and check indexing status against Qdrant SHA-256 hashes."""
+    vector_store = get_vector_store()
+    documents = []
+
+    for file_path in sorted(DATA_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not file_path.is_file() or file_path.name.startswith("."):
+            continue
+
+        try:
+            doc_hash = compute_file_sha256(str(file_path))
+            is_indexed = vector_store.has_doc_hash(doc_hash)
+            size_kb = round(file_path.stat().st_size / 1024, 1)
+
+            documents.append({
+                "filename": file_path.name,
+                "size_kb": size_kb,
+                "doc_hash": doc_hash,
+                "doc_hash_short": f"{doc_hash[:8]}...{doc_hash[-8:]}",
+                "is_indexed": is_indexed,
+                "path": str(file_path),
+            })
+        except Exception as e:
+            documents.append({
+                "filename": file_path.name,
+                "size_kb": 0,
+                "doc_hash": "error",
+                "doc_hash_short": "error",
+                "is_indexed": False,
+                "error": str(e),
+            })
+
+    return documents
+
+
+@app.post("/api/ingest")
+def ingest_document(payload: IngestPayload) -> Dict[str, Any]:
+    """Ingest a specific file located in data/ directory."""
+    target_file = DATA_DIR / payload.filename
+    if not target_file.exists():
+        raise HTTPException(status_code=404, detail=f"File '{payload.filename}' not found in data/ directory.")
+
+    try:
+        pipeline = IngestionPipeline(vector_store=_SHARED_VECTOR_STORE)
+        result = pipeline.ingest_file(str(target_file), force_reindex=payload.force_reindex)
+
+        return {
+            "status": result.status,
+            "source_file": result.source_file,
+            "doc_hash": result.doc_hash,
+            "chunk_count": result.chunk_count,
+            "message": result.message,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+
+
+@app.post("/api/upload")
+async def upload_document(file: UploadFile = File(...), auto_ingest: bool = True) -> Dict[str, Any]:
+    """Upload a document to data/ directory with optional immediate ingestion."""
+    destination = DATA_DIR / file.filename
+    with destination.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    doc_hash = compute_file_sha256(str(destination))
+
+    if auto_ingest:
+        try:
+            pipeline = IngestionPipeline(vector_store=_SHARED_VECTOR_STORE)
+            result = pipeline.ingest_file(str(destination), force_reindex=False)
+            return {
+                "uploaded": True,
+                "filename": file.filename,
+                "doc_hash": doc_hash,
+                "ingest_status": result.status,
+                "chunk_count": result.chunk_count,
+                "message": result.message,
+            }
+        except Exception as e:
+            return {
+                "uploaded": True,
+                "filename": file.filename,
+                "doc_hash": doc_hash,
+                "ingest_status": "error",
+                "message": f"Uploaded, but indexing failed: {str(e)}",
+            }
+
+    return {
+        "uploaded": True,
+        "filename": file.filename,
+        "doc_hash": doc_hash,
+        "ingest_status": "unindexed",
+        "message": "Uploaded to data/ directory successfully.",
+    }
+
+
+@app.post("/api/query")
+def execute_query_trace(payload: QueryPayload) -> Dict[str, Any]:
+    """
+    Execute query through the LangGraph state machine, tracking discrete node transitions
+    and returning execution telemetry for the frontend circuit visualizer.
+    """
+    settings = get_settings()
+    start_time = time.time()
+
+    state: RAGState = {
+        "question": payload.question,
+        "chat_history": [],
+        "retrieved_chunks": [],
+        "confidence_score": 0.0,
+        "rewritten_question": None,
+        "answer": "",
+        "retry_count": 0,
+    }
+
+    steps_trace: List[Dict[str, Any]] = []
+
+    # Step 1: Initial Retrieval (Broad candidate pool)
+    t0 = time.time()
+    ret_out = retrieve_node(state)
+    state.update(ret_out)
+    raw_candidates = state.get("retrieved_chunks", [])
+    steps_trace.append({
+        "node": "retrieve",
+        "attempt": 0,
+        "status": "pass" if raw_candidates else "empty",
+        "duration_ms": round((time.time() - t0) * 1000, 1),
+        "details": f"Retrieved {len(raw_candidates)} candidate chunks from Qdrant",
+    })
+
+    # Step 1.5: Cross-Encoder Reranking
+    if getattr(settings, "USE_RERANKER", True):
+        t0 = time.time()
+        rerank_out = rerank_node(state)
+        state.update(rerank_out)
+        reranked_chunks = state.get("retrieved_chunks", [])
+        top_score = (reranked_chunks[0].metadata or {}).get("rerank_score", None) if reranked_chunks else None
+        steps_trace.append({
+            "node": "rerank",
+            "attempt": 0,
+            "status": "pass" if reranked_chunks else "empty",
+            "duration_ms": round((time.time() - t0) * 1000, 1),
+            "details": f"Rescored {len(raw_candidates)} candidates -> Top {len(reranked_chunks)} (Top score: {top_score})",
+        })
+
+    # Reasoning Loop with dynamic grading & rewriting
+    while True:
+        # Step 2: Grade relevance
+        t0 = time.time()
+        grade_out = grade_node(state)
+        state.update(grade_out)
+        confidence = state.get("confidence_score", 0.0)
+        grade_duration = round((time.time() - t0) * 1000, 1)
+
+        decision = decide_next_step(state)
+        steps_trace.append({
+            "node": "grade",
+            "attempt": state.get("retry_count", 0),
+            "status": "pass" if confidence >= settings.CONFIDENCE_THRESHOLD else "warn",
+            "score": round(confidence, 2),
+            "threshold": settings.CONFIDENCE_THRESHOLD,
+            "duration_ms": grade_duration,
+            "decision": decision,
+        })
+
+        if decision == "generate":
+            break
+
+        # Step 3: Rewrite query
+        t0 = time.time()
+        rewrite_out = rewrite_node(state)
+        state.update(rewrite_out)
+        rewrite_duration = round((time.time() - t0) * 1000, 1)
+        steps_trace.append({
+            "node": "rewrite",
+            "attempt": state.get("retry_count", 0),
+            "status": "warn",
+            "rewritten_query": state.get("rewritten_question"),
+            "duration_ms": rewrite_duration,
+        })
+
+        # Loop back into retrieve & rerank
+        t0 = time.time()
+        ret_out = retrieve_node(state)
+        state.update(ret_out)
+        raw_candidates = state.get("retrieved_chunks", [])
+        steps_trace.append({
+            "node": "retrieve",
+            "attempt": state.get("retry_count", 0),
+            "status": "pass" if raw_candidates else "empty",
+            "duration_ms": round((time.time() - t0) * 1000, 1),
+            "details": f"Re-retrieved {len(raw_candidates)} candidate chunks",
+        })
+
+        if getattr(settings, "USE_RERANKER", True):
+            t0 = time.time()
+            rerank_out = rerank_node(state)
+            state.update(rerank_out)
+            reranked_chunks = state.get("retrieved_chunks", [])
+            steps_trace.append({
+                "node": "rerank",
+                "attempt": state.get("retry_count", 0),
+                "status": "pass" if reranked_chunks else "empty",
+                "duration_ms": round((time.time() - t0) * 1000, 1),
+                "details": f"Re-reranked to {len(reranked_chunks)} chunks",
+            })
+
+    # Step 4: Final Generation
+    t0 = time.time()
+    gen_out = generate_node(state)
+    state.update(gen_out)
+    final_answer = state.get("answer", "")
+    gen_duration = round((time.time() - t0) * 1000, 1)
+
+    steps_trace.append({
+        "node": "generate",
+        "status": "pass" if state.get("confidence_score", 0.0) >= settings.CONFIDENCE_THRESHOLD else "refuse",
+        "duration_ms": gen_duration,
+    })
+
+    total_latency_ms = round((time.time() - start_time) * 1000, 1)
+
+    # Format chunks for inspection drawer
+    formatted_chunks = []
+    for c in state.get("retrieved_chunks", []):
+        meta = c.metadata or {}
+        formatted_chunks.append({
+            "id": c.id,
+            "text": c.text,
+            "score": round(c.score, 4) if c.score is not None else None,
+            "rerank_score": round(meta["rerank_score"], 4) if meta.get("rerank_score") is not None else None,
+            "source_file": meta.get("source_file", "unknown"),
+            "page_numbers": meta.get("page_numbers", []),
+            "section_path": meta.get("section_path", "General"),
+            "content_type": meta.get("content_type", "text"),
+        })
+
+    return {
+        "question": payload.question,
+        "final_answer": final_answer,
+        "confidence_score": round(state.get("confidence_score", 0.0), 2),
+        "threshold": settings.CONFIDENCE_THRESHOLD,
+        "passed": state.get("confidence_score", 0.0) >= settings.CONFIDENCE_THRESHOLD,
+        "retries_count": state.get("retry_count", 0),
+        "total_latency_ms": total_latency_ms,
+        "steps_trace": steps_trace,
+        "retrieved_chunks": formatted_chunks,
+    }
+
+
+# Mount static assets directory
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

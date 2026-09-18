@@ -1,6 +1,20 @@
+import os
+
+# Prevent OpenBLAS/MKL thread memory exhaustion crashes on Windows
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_QDRANT_PATH = str(ROOT_DIR / "qdrant_data")
+DEFAULT_ENV_FILE = str(ROOT_DIR / ".env")
 
 
 class Settings(BaseSettings):
@@ -16,7 +30,7 @@ class Settings(BaseSettings):
 
     # --- Google Gemini Configuration ---
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     GEMINI_EMBEDDING_DIM: int = 768
 
@@ -27,18 +41,28 @@ class Settings(BaseSettings):
     EMBEDDING_DEVICE: str = "cpu"
 
     # --- Qdrant Vector Database (Local Disk Default) ---
-    QDRANT_PATH: str = "./qdrant_data"
+    QDRANT_PATH: str = DEFAULT_QDRANT_PATH
     QDRANT_URL: Optional[str] = None
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "knowledge_chunks"
 
+    # --- Reranker Configuration (Two-Stage Retrieval) ---
+    USE_RERANKER: bool = True
+    RERANKER_PROVIDER: str = "flashrank"
+    RERANKER_MODEL: str = "ms-marco-MiniLM-L-12-v2"
+    RERANK_CANDIDATES_K: int = 15
+    RERANKER_DEVICE: str = "cpu"
+
     # --- Ingestion & RAG Tuning ---
     DO_OCR: bool = False
+    DO_TABLE_STRUCTURE: bool = False
+    FORCE_BACKEND_TEXT: bool = True
+    GENERATE_PICTURE_IMAGES: bool = False
     CONFIDENCE_THRESHOLD: float = 0.70
-    RETRIEVAL_TOP_K: int = 10
+    RETRIEVAL_TOP_K: int = 4
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(DEFAULT_ENV_FILE, ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

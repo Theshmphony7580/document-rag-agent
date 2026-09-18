@@ -1,4 +1,5 @@
 import os
+import threading
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -7,9 +8,25 @@ from qdrant_client import QdrantClient, models
 from schemas import DocumentChunk
 from config import get_settings
 
+_STORE_LOCK = threading.RLock()
+_GLOBAL_VECTOR_STORE: Optional["QdrantVectorStore"] = None
+
 
 class QdrantVectorStore:
     """Manages document chunk indexing, deduplication, and vector search in Qdrant."""
+
+    _instance: Optional["QdrantVectorStore"] = None
+    _lock = threading.RLock()
+
+    def __new__(cls, *args, **kwargs):
+        # Return existing singleton if no custom connection overrides are passed
+        if not args and not kwargs:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                return cls._instance
+        return super().__new__(cls)
 
     def __init__(
         self,
@@ -18,22 +35,27 @@ class QdrantVectorStore:
         api_key: Optional[str] = None,
         collection_name: Optional[str] = None,
     ):
-        settings = get_settings()
-        self.collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
-        self.vector_dim = getattr(settings, "EMBEDDING_DIM", settings.GEMINI_EMBEDDING_DIM)
+        with self._lock:
+            if getattr(self, "_initialized", False):
+                return
 
-        # Disk storage preferred over in-memory for persistent document RAG
-        self.is_remote = bool(url or settings.QDRANT_URL)
-        if self.is_remote:
-            target_url = url or settings.QDRANT_URL
-            target_key = api_key or settings.QDRANT_API_KEY
-            self.client = QdrantClient(url=target_url, api_key=target_key)
-        else:
-            storage_path = path or settings.QDRANT_PATH
-            os.makedirs(storage_path, exist_ok=True)
-            self.client = QdrantClient(path=storage_path)
+            settings = get_settings()
+            self.collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
+            self.vector_dim = getattr(settings, "EMBEDDING_DIM", settings.GEMINI_EMBEDDING_DIM)
 
-        self.ensure_collection()
+            # Disk storage preferred over in-memory for persistent document RAG
+            self.is_remote = bool(url or settings.QDRANT_URL)
+            if self.is_remote:
+                target_url = url or settings.QDRANT_URL
+                target_key = api_key or settings.QDRANT_API_KEY
+                self.client = QdrantClient(url=target_url, api_key=target_key)
+            else:
+                storage_path = path or settings.QDRANT_PATH
+                os.makedirs(storage_path, exist_ok=True)
+                self.client = QdrantClient(path=storage_path)
+
+            self.ensure_collection()
+            self._initialized = True
 
     def ensure_collection(
         self,
@@ -198,3 +220,13 @@ class QdrantVectorStore:
             self.client.close()
         except Exception:
             pass
+
+
+def get_vector_store() -> QdrantVectorStore:
+    """Return the shared singleton instance of QdrantVectorStore with thread synchronization."""
+    global _GLOBAL_VECTOR_STORE
+    if _GLOBAL_VECTOR_STORE is None:
+        with _STORE_LOCK:
+            if _GLOBAL_VECTOR_STORE is None:
+                _GLOBAL_VECTOR_STORE = QdrantVectorStore()
+    return _GLOBAL_VECTOR_STORE

@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from schemas import DocumentChunk
 from config import get_settings
-from storage.vector_store import QdrantVectorStore
+from storage.vector_store import QdrantVectorStore, get_vector_store
 from ingestion.embeddings import HuggingFaceEmbedder, GeminiEmbedder, get_embedder
 from agent.state import RAGState
 from agent.prompts import (
@@ -27,6 +27,7 @@ from agent.prompts import (
     FALLBACK_REFUSAL_TEMPLATE,
     format_chunk_context,
 )
+from agent.reranker import get_reranker
 from agent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def retrieve_node(
     vector_store: Optional[QdrantVectorStore] = None,
     embedder: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Retrieve top-k relevant document chunks from the vector store using dense vector similarity."""
+    """Retrieve candidate document chunks from the vector store using dense vector similarity."""
     settings = get_settings()
     active_query = state.get("rewritten_question") or state.get("question", "")
 
@@ -45,16 +46,51 @@ def retrieve_node(
         logger.warning("[retrieve_node] No active query found in state.")
         return {"retrieved_chunks": []}
 
-    vs = vector_store or QdrantVectorStore()
+    vs = vector_store or get_vector_store()
     emb = embedder or get_embedder()
 
     try:
         query_vector = emb.embed_text(active_query, is_query=True)
-        chunks = vs.search(query_vector=query_vector, top_k=settings.RETRIEVAL_TOP_K)
+        # If reranker is enabled, retrieve broad candidate pool; otherwise direct top_k
+        fetch_limit = (
+            getattr(settings, "RERANK_CANDIDATES_K", 15)
+            if getattr(settings, "USE_RERANKER", True)
+            else settings.RETRIEVAL_TOP_K
+        )
+        chunks = vs.search(query_vector=query_vector, top_k=fetch_limit)
         return {"retrieved_chunks": chunks}
     except Exception as e:
         logger.error(f"[retrieve_node] Retrieval failed: {e}")
         return {"retrieved_chunks": []}
+
+
+def rerank_node(
+    state: RAGState,
+    reranker: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Rescore candidate chunks with BAAI/bge-reranker-base and prune to RETRIEVAL_TOP_K."""
+    settings = get_settings()
+    if not getattr(settings, "USE_RERANKER", True):
+        return {}
+
+    active_query = state.get("rewritten_question") or state.get("question", "")
+    chunks = state.get("retrieved_chunks", [])
+    if not chunks or not active_query:
+        return {"retrieved_chunks": chunks, "rerank_scores": []}
+
+    engine = reranker or get_reranker()
+    try:
+        reranked = engine.rerank(
+            query=active_query,
+            chunks=chunks,
+            top_n=settings.RETRIEVAL_TOP_K,
+        )
+        scores = [(c.metadata or {}).get("rerank_score", 0.0) for c in reranked]
+        logger.info(f"[rerank_node] Reranked {len(chunks)} candidate chunks down to {len(reranked)}.")
+        return {"retrieved_chunks": reranked, "rerank_scores": scores}
+    except Exception as e:
+        logger.error(f"[rerank_node] Reranking failed ({e}). Retaining original chunks.")
+        return {"retrieved_chunks": chunks[: settings.RETRIEVAL_TOP_K], "rerank_scores": []}
 
 
 def grade_node(

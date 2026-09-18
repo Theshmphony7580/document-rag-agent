@@ -12,7 +12,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.state import RAGState
-from agent.nodes import retrieve_node, grade_node, rewrite_node, generate_node
+from agent.nodes import retrieve_node, rerank_node, grade_node, rewrite_node, generate_node
 from config import get_settings
 from schemas import QueryResponse
 
@@ -42,18 +42,20 @@ def decide_next_step(state: RAGState) -> Literal["generate", "rewrite"]:
 
 
 def build_rag_graph() -> CompiledStateGraph:
-    """Build and compile the LangGraph self-correcting Document RAG workflow."""
+    """Build and compile the LangGraph self-correcting Document RAG workflow with 2-stage retrieval."""
     workflow = StateGraph(RAGState)
 
     # Register nodes
     workflow.add_node("retrieve", retrieve_node)
+    workflow.add_node("rerank", rerank_node)
     workflow.add_node("grade", grade_node)
     workflow.add_node("rewrite", rewrite_node)
     workflow.add_node("generate", generate_node)
 
-    # Set flow graph edges
+    # Two-stage retrieval edges: retrieve -> rerank -> grade
     workflow.set_entry_point("retrieve")
-    workflow.add_edge("retrieve", "grade")
+    workflow.add_edge("retrieve", "rerank")
+    workflow.add_edge("rerank", "grade")
 
     # Conditional routing out of grading node
     workflow.add_conditional_edges(
@@ -65,7 +67,7 @@ def build_rag_graph() -> CompiledStateGraph:
         },
     )
 
-    # Self-correction loop: rewrite feeds back into retrieve
+    # Self-correction loop: rewrite feeds back into retrieve -> rerank -> grade
     workflow.add_edge("rewrite", "retrieve")
 
     # Terminal node

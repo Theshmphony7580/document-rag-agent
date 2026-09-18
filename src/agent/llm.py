@@ -72,9 +72,10 @@ class LLMClient:
         temperature: float,
     ) -> str:
         """Call Groq OpenAI-compatible chat completions REST endpoint."""
+        api_key = (self.groq_api_key or "").strip()
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.groq_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
@@ -83,19 +84,35 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        payload: Dict[str, Any] = {
-            "model": self.groq_model,
-            "messages": messages,
-            "temperature": temperature,
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
+        # Try specified model, fallback to alternative models if 404
+        models_to_try = [self.groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        models_to_try = list(dict.fromkeys(m for m in models_to_try if m))
 
-        with httpx.Client(timeout=45.0) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+        last_err = None
+        for model_name in models_to_try:
+            payload: Dict[str, Any] = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+
+            try:
+                with httpx.Client(timeout=45.0) as client:
+                    resp = client.post(url, headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data["choices"][0]["message"]["content"].strip()
+                    else:
+                        print(f"[LLMClient] Groq error ({model_name}) HTTP {resp.status_code}: {resp.text}")
+                        last_err = f"Groq {model_name} HTTP {resp.status_code}: {resp.text}"
+                        if resp.status_code != 404:
+                            break
+            except Exception as e:
+                last_err = str(e)
+
+        raise RuntimeError(last_err or "All Groq model attempts failed.")
 
     def _call_gemini(
         self,
@@ -104,30 +121,46 @@ class LLMClient:
         json_mode: bool,
         temperature: float,
     ) -> str:
-        """Call Google Gemini REST endpoint."""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.gemini_api_key}"
+        """Call Google Gemini REST endpoint with model fallback."""
+        api_key = (self.gemini_api_key or "").strip()
+        models_to_try = [self.gemini_model, "gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]
+        models_to_try = list(dict.fromkeys(m for m in models_to_try if m))
 
-        payload: Dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": temperature,
-            },
-        }
-        if system_prompt:
-            payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
-        if json_mode:
-            payload["generationConfig"]["responseMimeType"] = "application/json"
+        last_err = None
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
 
-        with httpx.Client(timeout=45.0) as client:
-            resp = client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
-            raise RuntimeError("No candidate text returned by Gemini API.")
+            payload: Dict[str, Any] = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": temperature,
+                },
+            }
+            if system_prompt:
+                payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
+            if json_mode:
+                payload["generationConfig"]["responseMimeType"] = "application/json"
+
+            try:
+                with httpx.Client(timeout=45.0) as client:
+                    resp = client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts:
+                                return parts[0].get("text", "").strip()
+                        raise RuntimeError("No candidate text returned by Gemini API.")
+                    else:
+                        print(f"[LLMClient] Gemini error ({model_name}) HTTP {resp.status_code}: {resp.text}")
+                        last_err = f"Gemini {model_name} HTTP {resp.status_code}: {resp.text}"
+                        if resp.status_code != 404:
+                            break
+            except Exception as e:
+                last_err = str(e)
+
+        raise RuntimeError(last_err or "All Gemini model attempts failed.")
 
     def _generate_mock(
         self,
@@ -135,58 +168,94 @@ class LLMClient:
         system_prompt: Optional[str],
         json_mode: bool,
     ) -> str:
-        """Deterministic, offline test fallback for local testing without API keys."""
+        """Deterministic fallback when external LLM calls fail or keys are invalid."""
         # 1. JSON Mode (Grade Node)
         if json_mode:
-            # Check for no excerpts or explicitly irrelevant test markers
             if "[No document excerpts available]" in prompt or "irrelevant_test_marker" in prompt:
                 return json.dumps({
                     "is_relevant": False,
-                    "confidence": 0.20,
-                    "reason": "No document excerpts provided or content is completely out-of-domain."
+                    "confidence": 0.15,
+                    "reason": "No document excerpts retrieved for this query."
                 })
 
-            # Check if query words overlap with context
             q_match = re.search(r"Question:\s*(.+?)\n", prompt, re.DOTALL)
             question_text = q_match.group(1).lower() if q_match else ""
-            
-            # Simple keyword overlap check
-            words = [w for w in re.findall(r"\w+", question_text) if len(w) > 3]
-            prompt_lower = prompt.lower()
-            matches = sum(1 for w in words if w in prompt_lower)
-            has_strong_match = (matches >= 2) or ("architecture" in prompt_lower and "qdrant" in prompt_lower)
+            query_words = [w for w in re.findall(r"\w+", question_text) if len(w) > 2]
 
-            if has_strong_match or len(words) == 0:
+            # Parse excerpts to check for real keyword relevance
+            excerpts = prompt.split("--- [Excerpt")
+            relevant_count = 0
+            for exc in excerpts[1:]:
+                exc_lower = exc.lower()
+                matches = sum(1 for w in query_words if w in exc_lower)
+                if matches > 0:
+                    relevant_count += 1
+
+            if relevant_count > 0:
+                score = min(0.95, 0.60 + 0.10 * relevant_count)
                 return json.dumps({
                     "is_relevant": True,
-                    "confidence": 0.88,
-                    "reason": "Retrieved excerpts provide direct factual coverage for the question."
+                    "confidence": round(score, 2),
+                    "reason": f"Found {relevant_count} retrieved excerpt(s) referencing query terms ({', '.join(query_words[:3])})."
                 })
             else:
                 return json.dumps({
                     "is_relevant": False,
-                    "confidence": 0.45,
-                    "reason": "Retrieved excerpts do not sufficiently answer the specific inquiry."
+                    "confidence": 0.35,
+                    "reason": "Retrieved chunks do not contain keywords from the user question."
                 })
 
         # 2. Query Rewriter Prompt
         if "rephrase the user's question" in (system_prompt or "").lower():
             q_match = re.search(r"Original Question:\s*(.+?)\n", prompt)
             orig_q = q_match.group(1) if q_match else prompt
-            # Strip filler words
-            cleaned = re.sub(r"(?i)\b(what is|how does|can you tell me|please explain|tell me about)\b", "", orig_q)
+            cleaned = re.sub(r"(?i)\b(what is|what are|how does|can you tell me|please explain|tell me about)\b", "", orig_q)
             cleaned = re.sub(r"[^\w\s]", "", cleaned).strip()
             return f"{cleaned} architecture specifications"
 
         # 3. Grounded Answer Generation
-        # Extract citation headers from context
-        source_match = re.search(r"Source:\s*([^\s|]+)", prompt)
-        source_file = source_match.group(1) if source_match else "document.pdf"
-        page_match = re.search(r"Page\(s\):\s*([^\s|]+)", prompt)
-        page_num = page_match.group(1) if page_match else "1"
+        q_match = re.search(r"Question:\s*(.+?)\n\nContext Excerpts:", prompt, re.DOTALL)
+        question_text = q_match.group(1).strip() if q_match else "your question"
+        query_words = [w.lower() for w in re.findall(r"\w+", question_text) if len(w) > 3]
 
-        return (
-            f"Based on the indexed documentation, the system leverages local disk storage and structured hierarchical chunking. "
-            f"Key architectural parameters and configurations are maintained with strict deduplication "
-            f"[Source: {source_file}, Page {page_num}]."
-        )
+        # Extract all excerpts with their source and page
+        pattern = r"--- \[Excerpt \d+\] Source: ([^|]+) \| Page\(s\): ([^|]+) \| [^\n]+ ---\n(.*?)(?=\n\n--- \[Excerpt|\Z)"
+        matches = list(re.finditer(pattern, prompt, re.DOTALL))
+
+        matched_sentences = []
+        for m in matches:
+            src = m.group(1).strip()
+            page = m.group(2).strip()
+            text = m.group(3).strip()
+
+            # Split chunk into sentences
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 20]
+            for s in sentences:
+                s_lower = s.lower()
+                hits = sum(1 for qw in query_words if qw in s_lower)
+                if hits > 0:
+                    matched_sentences.append((hits, s, src, page))
+
+        # Sort by relevance hits
+        matched_sentences.sort(key=lambda x: x[0], reverse=True)
+
+        if matched_sentences:
+            top_sentences = matched_sentences[:3]
+            synthesis_parts = []
+            for _, sent, src, page in top_sentences:
+                synthesis_parts.append(f"{sent} [{src} [p. {page}]]")
+            return " ".join(synthesis_parts)
+
+        # If no sentences contain the query keywords, report accurately from the top chunk
+        if matches:
+            first_match = matches[0]
+            first_src = first_match.group(1).strip()
+            first_page = first_match.group(2).strip()
+            first_text = first_match.group(3).strip()
+            first_snippet = first_text[:300].replace("\n", " ") + "..."
+            return (
+                f"The indexed excerpts from {first_src} [p. {first_page}] do not directly discuss or answer '{question_text}'. "
+                f"Retrieved passage excerpt: \"{first_snippet}\""
+            )
+
+        return f"No relevant content found in the indexed documents to answer '{question_text}'."

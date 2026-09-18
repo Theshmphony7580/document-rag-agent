@@ -12,5 +12,6 @@ class RAGState(TypedDict, total=False):
     retrieved_chunks: List[DocumentChunk]
     confidence_score: float
     rewritten_question: Optional[str]
+    rerank_scores: Optional[List[float]]
     answer: str
     retry_count: int
