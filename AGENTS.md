@@ -11,8 +11,8 @@
 - **Project:** Enterprise Document RAG Agent
 - **Core Orchestrator:** LangGraph state graph with dynamic self-correction loops
 - **Vector Database:** Qdrant (local `:memory:` / directory / remote server)
-- **Embedding Model:** Local Hugging Face (`BAAI/bge-base-en-v1.5`, 768-dim) via `sentence-transformers` (with Gemini API & deterministic test fallbacks)
-- **Inference Models:** Groq (`llama-3.3-70b-versatile`) & Google Gemini (`gemini-2.5-flash`)
+- **Embedding Model:** Local Hugging Face (`BAAI/bge-small-en-v1.5`, 384-dim) via `sentence-transformers` (with Gemini API & deterministic test fallbacks)
+- **Inference Models:** Groq (`qwen/qwen3.8-27b`) & Google Gemini (`gemini-3.6-flash`)
 - **Document Parsing:** IBM Docling (`HierarchicalChunker` + `TableFormer`) & Gemini Vision for figures
 - **Package Manager:** `uv` with Python 3.12+
 
@@ -87,13 +87,13 @@
 
 | Resource / Key | Purpose | Required For Ingestion? | Default / Fallback |
 |---|---|---|---|
-| `LOCAL_EMBEDDING_MODEL` | Local Hugging Face embeddings via `sentence-transformers` | **Yes** | `"BAAI/bge-base-en-v1.5"` (768-dim, CPU/CUDA) |
+| `LOCAL_EMBEDDING_MODEL` | Local Hugging Face embeddings via `sentence-transformers` | **Yes** | `"BAAI/bge-small-en-v1.5"` (384-dim, CPU/CUDA) |
 | `GEMINI_API_KEY` | VLM chart summaries + optional Gemini embeddings fallback | Optional | Offline mock available for testing |
 | `GROQ_API_KEY` | Fast LLM inference (Llama 3.3) | No (Deferred to Agent phase) | Offline mock available for testing |
 | `QDRANT_PATH` | Vector store backend on local disk | **Yes** | `"./qdrant_data"` (auto-created on disk) |
 | `QDRANT_API_KEY` | Qdrant Cloud auth token | Optional | Empty for local disk |
 | `QDRANT_COLLECTION_NAME` | Target collection name | **Yes** | `"knowledge_chunks"` (auto-created if missing) |
-| Collection Specs | Cosine metric, 768 vector dimensions, keyword index on `doc_hash` | **Auto-initialized** | Handled on first run in `ensure_collection()` |
+| Collection Specs | Cosine metric, 384 vector dimensions, keyword index on `doc_hash` | **Auto-initialized** | Handled on first run in `ensure_collection()` |
 
 ---
 
@@ -122,7 +122,7 @@ document-rag/
     │   └── graph.py                   # StateGraph assembly & compilation
     ├── ingestion/
     │   ├── __init__.py                # Ingestion module
-    │   ├── embeddings.py              # Local BGE embedding model (768-dim) + Gemini & mock fallbacks
+    │   ├── embeddings.py              # Local BGE embedding model (384-dim) + Gemini & mock fallbacks
     │   ├── parser.py                  # Docling parser (do_ocr=False) + HierarchicalChunker
     │   ├── pipeline.py                # IngestionPipeline orchestrator (SHA-256 deduplication)
     │   └── vision.py                  # VLM figure captioner (Forensic prompt + Gemini Vision)
@@ -142,7 +142,7 @@ document-rag/
 | [`src/config.py`](src/config.py) | Done | Settings loader via `pydantic-settings` (with reranker toggles) |
 | [`src/storage/vector_store.py`](src/storage/vector_store.py) | Done | Qdrant disk client adapter (ensure_collection, upsert, search) |
 | [`src/ingestion/vision.py`](src/ingestion/vision.py) | Done | VLM figure captioner (Forensic Document Intelligence prompt + Gemini Vision) |
-| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Local Hugging Face (`BAAI/bge-base-en-v1.5`, 768-dim) + Gemini & mock fallbacks |
+| [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) | Done | Local Hugging Face (`BAAI/bge-small-en-v1.5`, 384-dim) + Gemini & mock fallbacks |
 | [`src/ingestion/parser.py`](src/ingestion/parser.py) | Done | Docling parser (`do_ocr=False`) + VLM diagram integration + text fallback |
 | [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) | Done | Ingestion orchestrator (`ingest_file`) with SHA-256 deduplication |
 | [`src/agent/prompts.py`](src/agent/prompts.py) | Done | Centralized node prompt templates (grade, rewrite, generate, fallback refusal) |
@@ -169,7 +169,7 @@ document-rag/
 - [x] Implemented [`src/storage/vector_store.py`](src/storage/vector_store.py) with Qdrant disk storage and `doc_hash` index.
 - [x] Implemented [`src/ingestion/vision.py`](src/ingestion/vision.py) with finalized Forensic Document Intelligence prompt.
 - [x] Standardized root imports across `src/` to align with project layout and eliminate linter warnings.
-- [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) supporting local Hugging Face `BAAI/bge-base-en-v1.5` (768-dim), Gemini REST, and offline mock.
+- [x] Implemented [`src/ingestion/embeddings.py`](src/ingestion/embeddings.py) supporting local Hugging Face `BAAI/bge-small-en-v1.5` (384-dim), Gemini REST, and offline mock.
 - [x] Implemented [`src/ingestion/parser.py`](src/ingestion/parser.py) with Docling `HierarchicalChunker` & metadata.
 - [x] Implemented [`src/ingestion/pipeline.py`](src/ingestion/pipeline.py) orchestrator with SHA-256 deduplication.
 - [x] Ingestion pipeline smoke test executed and verified on local disk (parsing, deduplication, vector search).
@@ -178,7 +178,7 @@ document-rag/
 - [x] Implemented [`src/agent/llm.py`](src/agent/llm.py) with Groq & Gemini REST APIs and offline mock fallback.
 - [x] Implemented [`src/agent/nodes.py`](src/agent/nodes.py) with `retrieve`, `grade`, `rewrite`, and `generate` nodes.
 - [x] Implemented [`src/agent/graph.py`](src/agent/graph.py) assembling `StateGraph(RAGState)` with self-correcting conditional edge.
-- [x] Configured local Hugging Face embedding model (`BAAI/bge-base-en-v1.5`, 768 dimensions) via `sentence-transformers` in `pyproject.toml`, `config.py`, and `embeddings.py`.
+- [x] Configured local Hugging Face embedding model (`BAAI/bge-small-en-v1.5`, 384 dimensions) via `sentence-transformers` in `pyproject.toml`, `config.py`, and `embeddings.py`.
 - [x] Created root test suite [`test_agent_graph.py`](test_agent_graph.py) covering high confidence, query rewrites, and graceful refusal.
 - [x] Designed visual concept mockup and detailed implementation plan for Precision Observability Console (anti-purple industrial aesthetic).
 - [x] Implemented backend telemetry service in [`src/dashboard/server.py`](src/dashboard/server.py) with `/api/stats`, `/api/documents`, `/api/ingest`, `/api/upload`, and `/api/query`.
@@ -206,8 +206,19 @@ document-rag/
 - [x] Implemented FastAPI `lifespan` handler in [`src/dashboard/server.py`](src/dashboard/server.py) to pre-warm all models directly into RAM on server startup (`uv run main.py`), delivering instant sub-second queries.
 - [x] Diagnosed reranker loading halt (`MemoryError: `): PyTorch state_dict materialization ran out of heap RAM for the 1.1 GB `bge-reranker-base` model on Windows.
 - [x] Resolved reranker memory crash: switched default model to `BAAI/bge-reranker-small` (130 MB, 8.5x lighter, <200MB RAM) in [`config.py`](src/config.py), [`.env`](.env), and added auto-recovery fallback in [`reranker.py`](src/agent/reranker.py).
-- [ ] **NEXT MILESTONE OPTIONS:**
+- [x] Configured GPU (CUDA) execution for both `HuggingFaceEmbedder` (`EMBEDDING_DEVICE=cuda`) and `BGEReranker` (`RERANKER_DEVICE=cuda`) across [`config.py`](src/config.py), [`.env`](.env), and [`.env.example`](.env.example) with auto-detection and graceful CPU fallback.
+- [x] Updated telemetry console ([`server.py`](src/dashboard/server.py) & [`app.js`](src/dashboard/static/app.js)) to expose and render `[CUDA]` execution badges in the top telemetry ribbon.
+- [x] Preserved PyTorch CUDA wheels: removed `torch` from `pyproject.toml` dependencies and bounded `requires-python = ">=3.12,<3.13"`, preventing `uv run` from replacing CUDA binaries with PyPI CPU wheels. Instructed use of `uv run --no-sync main.py` or `python main.py`.
+- [x] Resolved Qdrant vector shape broadcast crash (`could not broadcast input array from shape (384,) into shape (768,)`): added automated dimension mismatch detection and dynamic collection re-creation in [`src/storage/vector_store.py`](src/storage/vector_store.py) (`ensure_collection` and `upsert_chunks`), seamlessly handling embedding model upgrades between 768d and 384d.
+- [x] Fixed Hugging Face 401 RepositoryNotFoundError for reranker: corrected non-existent `BAAI/bge-reranker-small` to `BAAI/bge-reranker-base` in [`.env`](.env), added automatic name normalization and lightweight `cross-encoder/ms-marco-MiniLM-L-6-v2` / FlashRank fallback support in [`src/agent/reranker.py`](src/agent/reranker.py).
+- [x] Standardized Groq LLM inference model to `qwen/qwen3.8-27b` across [`config.py`](src/config.py), [`.env`](.env), [`.env.example`](.env.example), [`llm.py`](src/agent/llm.py), and frontend console telemetry ([`index.html`](src/dashboard/static/index.html)).
+- [x] Exclusively routed all Groq requests to `qwen/qwen3.8-27b` in [`src/agent/llm.py`](src/agent/llm.py), with fallback to Gemini strictly prohibited when `LLM_PROVIDER=groq`.
+- [ ] **IN PROGRESS: Intent Classification / Triage Node:**
+  - Designed `TRIAGE_SYSTEM_PROMPT` and `TRIAGE_USER_TEMPLATE` to classify queries into `direct` vs `retrieval`.
+  - Designed `triage_node` and `direct_generate_node` for [`src/agent/nodes.py`](src/agent/nodes.py) to bypass vector retrieval for conversational queries.
+  - Formulated LangGraph conditional routing in [`src/agent/graph.py`](src/agent/graph.py) and telemetry integration in [`src/dashboard/server.py`](src/dashboard/server.py).
+- [ ] **REMAINING MILESTONE OPTIONS:**
   1. **Hybrid Retrieval (Dense + BM25 with Reciprocal Rank Fusion - RRF):** PRD §4 Step 3 parallel sparse + dense retrieval before cross-encoder reranking.
   2. **Multi-Turn Conversational Memory:** Enable session-scoped chat history in LangGraph state & UI.
-  3. **Intent Classification / Triage Node:** PRD §4 Step 2 routing for document Q&A vs direct extraction vs query decomposition.
-  4. **Continuous RAG Triad Evaluation:** Real-time Context Relevance, Faithfulness, and Answer Relevance scoring in the telemetry console.
+  3. **Continuous RAG Triad Evaluation:** Real-time Context Relevance, Faithfulness, and Answer Relevance scoring in the telemetry console.
+

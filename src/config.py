@@ -25,20 +25,20 @@ class Settings(BaseSettings):
 
     # --- Groq Configuration ---
     GROQ_API_KEY: Optional[str] = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    GROQ_TEMPERATURE: float = 0.0
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_TEMPERATURE: float = 0.3
 
     # --- Google Gemini Configuration ---
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
-    GEMINI_EMBEDDING_DIM: int = 768
+    GEMINI_EMBEDDING_DIM: int = 384
 
     # --- Local Hugging Face Embedding Configuration ---
     EMBEDDING_PROVIDER: str = "huggingface"
-    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
-    EMBEDDING_DIM: int = 768
-    EMBEDDING_DEVICE: str = "cpu"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_DIM: int = 384
+    EMBEDDING_DEVICE: str = "cuda"
 
     # --- Qdrant Vector Database (Local Disk Default) ---
     QDRANT_PATH: str = DEFAULT_QDRANT_PATH
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     RERANKER_PROVIDER: str = "flashrank"
     RERANKER_MODEL: str = "ms-marco-MiniLM-L-12-v2"
     RERANK_CANDIDATES_K: int = 15
-    RERANKER_DEVICE: str = "cpu"
+    RERANKER_DEVICE: str = "cuda"
 
     # --- Ingestion & RAG Tuning ---
     DO_OCR: bool = False

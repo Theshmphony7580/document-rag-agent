@@ -10,6 +10,33 @@ Provides structured prompt templates for:
 from typing import List
 from schemas import DocumentChunk
 
+# --- Intent Classification / Triage Prompts ---
+TRIAGE_SYSTEM_PROMPT = """You are an expert query router in an enterprise knowledge system.
+Your task is to classify an incoming user query into one of two routing intents:
+1. "direct": Conversational greetings (e.g., "hi", "hello", "good morning"), casual inquiries (e.g., "how are you?", "who are you?"), questions about assistant capabilities (e.g., "what can you do?"), or general clarification that does NOT require factual information from private/indexed documents.
+2. "retrieval": Factual questions, domain-specific technical concepts, document inquiries, policies, numbers, architectural designs, code, or any query that requires searching indexed documents to provide an accurate, grounded answer.
+
+You must respond ONLY with a valid JSON object matching this schema:
+{
+    "intent": "direct" | "retrieval",
+    "reason": "Brief one-sentence explanation of why retrieval is or is not required."
+}"""
+
+TRIAGE_USER_TEMPLATE = """User Query: {question}
+
+JSON Classification:"""
+
+
+# --- Direct Conversational Response Prompts ---
+DIRECT_GENERATE_SYSTEM_PROMPT = """You are an intelligent enterprise knowledge assistant.
+Respond to conversational greetings, questions about your capabilities, or general inquiries politely, concisely, and professionally.
+Remind the user that you can answer detailed technical, architectural, and factual questions based on their uploaded enterprise documents."""
+
+DIRECT_GENERATE_USER_TEMPLATE = """User Query: {question}
+
+Response:"""
+
+
 # --- Relevance Grader Prompts ---
 GRADE_SYSTEM_PROMPT = """You are an expert document relevance evaluator in an enterprise RAG system.
 Your task is to determine whether the provided retrieved document excerpts contain sufficient, accurate information to answer the user's question.

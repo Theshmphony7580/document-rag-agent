@@ -1,20 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Enterprise Document RAG // Precision Observability Console</title>
-  
+
   <!-- Modern Engineering Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div class="console-wrapper">
-    
+
     <!-- Precision Telemetry Header -->
     <header class="telemetry-header">
       <div class="header-brand">
@@ -39,7 +43,7 @@
         <div class="telemetry-divider"></div>
         <div class="telemetry-metric">
           <span class="metric-label">LOCAL EMBEDDER</span>
-          <span class="metric-value mono text-ice" id="statEmbedModel">BAAI/bge-base-en-v1.5</span>
+          <span class="metric-value mono text-ice" id="statEmbedModel">BAAI/bge-small-en-v1.5</span>
         </div>
         <div class="telemetry-divider"></div>
         <div class="telemetry-metric">
@@ -49,7 +53,7 @@
         <div class="telemetry-divider"></div>
         <div class="telemetry-metric">
           <span class="metric-label">INFERENCE ENGINE</span>
-          <span class="metric-value mono" id="statLlmModel">Groq Llama 3.3 70B</span>
+          <span class="metric-value mono" id="statLlmModel">Groq Qwen 3.8 27B</span>
         </div>
         <div class="telemetry-divider"></div>
         <div class="telemetry-metric">
@@ -61,7 +65,7 @@
 
     <!-- Main Precision Split Workbench -->
     <main class="workbench-grid">
-      
+
       <!-- Left Column: Cryptographic Document Ledger -->
       <section class="panel-container ledger-panel">
         <div class="panel-header">
@@ -117,14 +121,9 @@
         <!-- Query Input Bar -->
         <form id="queryForm" class="query-input-bar">
           <div class="input-prefix mono">&gt;</div>
-          <input 
-            type="text" 
-            id="queryInput" 
-            class="query-input" 
-            placeholder="Query indexed enterprise corpus (e.g., 'What embedding model and vector database are used?')" 
-            autocomplete="off"
-            required
-          >
+          <input type="text" id="queryInput" class="query-input"
+            placeholder="Query indexed enterprise corpus (e.g., 'What embedding model and vector database are used?')"
+            autocomplete="off" required>
           <button type="submit" id="submitQueryBtn" class="btn-execute">
             <span>EXECUTE</span>
             <span class="btn-shortcut mono">↵</span>
@@ -134,7 +133,20 @@
         <!-- Hardware-Styled Circuit State Machine Flow -->
         <div class="circuit-container">
           <div class="circuit-rail">
-            
+
+            <!-- Node: Triage -->
+            <div class="circuit-node" id="nodeTriage">
+              <div class="node-header">
+                <span class="node-status-led" id="ledTriage"></span>
+                <span class="node-label mono">00 // TRIAGE</span>
+              </div>
+              <div class="node-body">
+                <span class="node-metric mono" id="metricTriage">IDLE</span>
+              </div>
+            </div>
+
+            <div class="circuit-bus-line" id="bus0"></div>
+
             <!-- Node: Retrieve -->
             <div class="circuit-node" id="nodeRetrieve">
               <div class="node-header">
@@ -145,6 +157,7 @@
                 <span class="node-metric mono" id="metricRetrieve">IDLE</span>
               </div>
             </div>
+
 
             <div class="circuit-bus-line" id="bus1"></div>
 
@@ -222,7 +235,8 @@
             <span class="output-latency mono" id="outputLatency">-- ms</span>
           </div>
           <div class="output-body" id="outputBody">
-            <p class="placeholder-text">Submit an enterprise query to visualize LangGraph node execution and inspect grounded answers.</p>
+            <p class="placeholder-text">Submit an enterprise query to visualize LangGraph node execution and inspect
+              grounded answers.</p>
           </div>
         </div>
 
@@ -245,4 +259,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

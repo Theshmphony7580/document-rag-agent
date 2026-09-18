@@ -35,7 +35,15 @@ from storage.vector_store import QdrantVectorStore, get_vector_store
 from ingestion.embeddings import get_embedder
 from ingestion.parser import compute_file_sha256
 from ingestion.pipeline import IngestionPipeline
-from agent.nodes import retrieve_node, rerank_node, grade_node, rewrite_node, generate_node
+from agent.nodes import (
+    triage_node,
+    direct_generate_node,
+    retrieve_node,
+    rerank_node,
+    grade_node,
+    rewrite_node,
+    generate_node,
+)
 from agent.reranker import get_reranker
 from agent.graph import decide_next_step
 from agent.state import RAGState
@@ -123,6 +131,7 @@ def get_system_stats() -> Dict[str, Any]:
         "embedding_device": settings.EMBEDDING_DEVICE,
         "use_reranker": getattr(settings, "USE_RERANKER", True),
         "reranker_model": getattr(settings, "RERANKER_MODEL", "BAAI/bge-reranker-base"),
+        "reranker_device": getattr(settings, "RERANKER_DEVICE", "cuda"),
         "rerank_candidates_k": getattr(settings, "RERANK_CANDIDATES_K", 15),
         "llm_provider": settings.LLM_PROVIDER,
         "llm_model": settings.GROQ_MODEL if settings.LLM_PROVIDER == "groq" else settings.GEMINI_MODEL,
@@ -244,11 +253,56 @@ def execute_query_trace(payload: QueryPayload) -> Dict[str, Any]:
         "retrieved_chunks": [],
         "confidence_score": 0.0,
         "rewritten_question": None,
+        "intent": None,
         "answer": "",
         "retry_count": 0,
     }
 
     steps_trace: List[Dict[str, Any]] = []
+
+    # Step 0: Intent Classification / Triage
+    t0 = time.time()
+    triage_out = triage_node(state)
+    state.update(triage_out)
+    intent = state.get("intent", "retrieval")
+    steps_trace.append({
+        "node": "triage",
+        "attempt": 0,
+        "status": "pass",
+        "intent": intent,
+        "duration_ms": round((time.time() - t0) * 1000, 1),
+        "details": f"Classified query intent as '{intent}'",
+    })
+
+    # Direct conversational route (bypasses Qdrant vector retrieval)
+    if intent == "direct":
+        t0 = time.time()
+        gen_out = direct_generate_node(state)
+        state.update(gen_out)
+        final_answer = state.get("answer", "")
+        gen_duration = round((time.time() - t0) * 1000, 1)
+
+        steps_trace.append({
+            "node": "direct_generate",
+            "status": "pass",
+            "duration_ms": gen_duration,
+            "details": "Synthesized direct conversational response without document retrieval",
+        })
+
+        total_latency_ms = round((time.time() - start_time) * 1000, 1)
+
+        return {
+            "question": payload.question,
+            "final_answer": final_answer,
+            "confidence_score": 1.0,
+            "threshold": settings.CONFIDENCE_THRESHOLD,
+            "passed": True,
+            "retries_count": 0,
+            "total_latency_ms": total_latency_ms,
+            "steps_trace": steps_trace,
+            "retrieved_chunks": [],
+        }
+
 
     # Step 1: Initial Retrieval (Broad candidate pool)
     t0 = time.time()

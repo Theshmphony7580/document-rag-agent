@@ -18,6 +18,10 @@ from storage.vector_store import QdrantVectorStore, get_vector_store
 from ingestion.embeddings import HuggingFaceEmbedder, GeminiEmbedder, get_embedder
 from agent.state import RAGState
 from agent.prompts import (
+    TRIAGE_SYSTEM_PROMPT,
+    TRIAGE_USER_TEMPLATE,
+    DIRECT_GENERATE_SYSTEM_PROMPT,
+    DIRECT_GENERATE_USER_TEMPLATE,
     GRADE_SYSTEM_PROMPT,
     GRADE_USER_TEMPLATE,
     REWRITE_SYSTEM_PROMPT,
@@ -31,6 +35,42 @@ from agent.reranker import get_reranker
 from agent.llm import LLMClient
 
 logger = logging.getLogger(__name__)
+
+def triage_node(
+    state: RAGState,
+    llm: Optional[LLMClient] = None,
+) -> Dict[str, Any]:
+    """Classify user query intent into 'direct' or 'retrieval' to bypass retrieval for casual questions."""
+    question = state.get("question", "")
+    if not question:
+        return {"intent": "retrieval"}
+
+    client = llm or LLMClient()
+    prompt = TRIAGE_USER_TEMPLATE.format(question=question)
+
+    try:
+        raw_response = client.generate(
+            prompt=prompt,
+            system_prompt=TRIAGE_SYSTEM_PROMPT,
+            json_mode=True,
+        )
+
+        try:
+            data = json.loads(raw_response)
+        except json.JSONDecodeError:
+            json_match = re.search(r"\{.*\}", raw_response, re.DOTALL)
+            data = json.loads(json_match.group(0)) if json_match else {}
+
+        intent = str(data.get("intent", "retrieval")).strip().lower()
+        if intent not in ("direct", "retrieval"):
+            intent = "retrieval"
+
+        reason = data.get("reason", "N/A")
+        logger.info(f"[triage_node] Query intent classified as '{intent}'. (Reason: {reason})")
+        return {"intent": intent}
+    except Exception as e:
+        logger.error(f"[triage_node] Intent classification failed ({e}). Defaulting to 'retrieval'.")
+        return {"intent": "retrieval"}
 
 
 def retrieve_node(
@@ -199,3 +239,26 @@ def generate_node(
     )
 
     return {"answer": answer}
+
+
+def direct_generate_node(
+    state: RAGState,
+    llm: Optional[LLMClient] = None,
+) -> Dict[str, Any]:
+    """Synthesize immediate conversational response for direct queries without vector retrieval."""
+    question = state.get("question", "")
+    client = llm or LLMClient()
+
+    prompt = DIRECT_GENERATE_USER_TEMPLATE.format(question=question)
+    answer = client.generate(
+        prompt=prompt,
+        system_prompt=DIRECT_GENERATE_SYSTEM_PROMPT,
+        json_mode=False,
+    )
+
+    logger.info("[direct_generate_node] Generated direct response (skipping vector retrieval).")
+    return {
+        "answer": answer,
+        "confidence_score": 1.0,
+        "retrieved_chunks": [],
+    }

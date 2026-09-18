@@ -1,7 +1,7 @@
 """Dense embedding engines supporting local Hugging Face models and Google Gemini API.
 
-Defaults to local execution using Hugging Face's `BAAI/bge-base-en-v1.5` via `sentence-transformers`
-(768 dimensions, normalized for cosine similarity).
+Defaults to local execution using Hugging Face's `BAAI/bge-small-en-v1.5` via `sentence-transformers`
+(384 dimensions, normalized for cosine similarity).
 """
 
 import hashlib
@@ -49,20 +49,35 @@ class HuggingFaceEmbedder:
                 or HuggingFaceEmbedder._shared_device != self.device
             ):
                 try:
+                    target_device = self.device
+                    if target_device.startswith("cuda"):
+                        try:
+                            import torch
+                            if not torch.cuda.is_available():
+                                print("[HuggingFaceEmbedder] CUDA requested but torch.cuda.is_available() is False. Falling back to 'cpu'.")
+                                target_device = "cpu"
+                            else:
+                                gpu_name = torch.cuda.get_device_name(0)
+                                print(f"[HuggingFaceEmbedder] GPU detected: {gpu_name} ({target_device})")
+                        except Exception as torch_err:
+                            print(f"[HuggingFaceEmbedder] PyTorch CUDA check failed ({torch_err}). Falling back to 'cpu'.")
+                            target_device = "cpu"
+
                     from sentence_transformers import SentenceTransformer
-                    print(f"[HuggingFaceEmbedder] Loading local embedding model '{self.model_name}' onto {self.device}...")
+                    print(f"[HuggingFaceEmbedder] Loading local embedding model '{self.model_name}' onto {target_device}...")
                     try:
                         # Fast offline load without checking Hugging Face remote repository
                         HuggingFaceEmbedder._shared_model = SentenceTransformer(
-                            self.model_name, device=self.device, local_files_only=True
+                            self.model_name, device=target_device, local_files_only=True
                         )
                     except Exception:
                         HuggingFaceEmbedder._shared_model = SentenceTransformer(
-                            self.model_name, device=self.device
+                            self.model_name, device=target_device
                         )
                     HuggingFaceEmbedder._shared_model_name = self.model_name
-                    HuggingFaceEmbedder._shared_device = self.device
-                    print(f"[HuggingFaceEmbedder] Model '{self.model_name}' successfully loaded into memory.")
+                    HuggingFaceEmbedder._shared_device = target_device
+                    self.device = target_device
+                    print(f"[HuggingFaceEmbedder] Model '{self.model_name}' successfully loaded into memory on {target_device}.")
                 except ImportError:
                     logger.warning(
                         "[HuggingFaceEmbedder] 'sentence-transformers' not installed. "
@@ -89,7 +104,7 @@ class HuggingFaceEmbedder:
                 logger.warning(f"[HuggingFaceEmbedder] Warmup error ({e})")
 
     def embed_text(self, text: str, is_query: bool = False) -> List[float]:
-        """Generate 768-dim normalized embedding for a single text."""
+        """Generate 384-dim normalized embedding for a single text."""
         return self.embed_batch([text], is_query=is_query)[0]
 
     def embed_batch(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
@@ -119,7 +134,7 @@ class HuggingFaceEmbedder:
         return [self._generate_mock_embedding(t) for t in texts]
 
     def _generate_mock_embedding(self, text: str) -> List[float]:
-        """Deterministic 768-dimensional normalized unit vector generated from SHA-256 hash."""
+        """Deterministic 384-dimensional normalized unit vector generated from SHA-256 hash."""
         seed = hashlib.sha256(text.encode("utf-8")).digest()
         raw_values = []
         for i in range(self.vector_dim):
@@ -148,7 +163,7 @@ class GeminiEmbedder:
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
 
     def embed_text(self, text: str, is_query: bool = False) -> List[float]:
-        """Generate 768-dim embedding for a single text chunk."""
+        """Generate 384-dim embedding for a single text chunk."""
         return self.embed_batch([text])[0]
 
     def embed_batch(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
@@ -185,7 +200,7 @@ class GeminiEmbedder:
             return [item["values"] for item in embeddings_data]
 
     def _generate_mock_embedding(self, text: str) -> List[float]:
-        """Deterministic 768-dimensional normalized unit vector generated from SHA-256 hash."""
+        """Deterministic 384-dimensional normalized unit vector generated from SHA-256 hash."""
         seed = hashlib.sha256(text.encode("utf-8")).digest()
         raw_values = []
         for i in range(self.vector_dim):

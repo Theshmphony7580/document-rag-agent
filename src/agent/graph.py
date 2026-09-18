@@ -12,11 +12,29 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.state import RAGState
-from agent.nodes import retrieve_node, rerank_node, grade_node, rewrite_node, generate_node
+from agent.nodes import (
+    triage_node,
+    direct_generate_node,
+    retrieve_node,
+    rerank_node,
+    grade_node,
+    rewrite_node,
+    generate_node,
+)
 from config import get_settings
 from schemas import QueryResponse
 
 logger = logging.getLogger(__name__)
+
+
+def decide_intent_route(state: RAGState) -> Literal["direct_generate", "retrieve"]:
+    """Entry router: decides whether to answer directly or route to retrieval."""
+    intent = state.get("intent", "retrieval")
+    if intent == "direct":
+        logger.info("[decide_intent_route] Intent is 'direct' -> Routing to 'direct_generate'.")
+        return "direct_generate"
+    logger.info("[decide_intent_route] Intent is 'retrieval' -> Routing to 'retrieve'.")
+    return "retrieve"
 
 
 def decide_next_step(state: RAGState) -> Literal["generate", "rewrite"]:
@@ -42,18 +60,33 @@ def decide_next_step(state: RAGState) -> Literal["generate", "rewrite"]:
 
 
 def build_rag_graph() -> CompiledStateGraph:
-    """Build and compile the LangGraph self-correcting Document RAG workflow with 2-stage retrieval."""
+    """Build and compile the LangGraph self-correcting Document RAG workflow with triage & 2-stage retrieval."""
     workflow = StateGraph(RAGState)
 
     # Register nodes
+    workflow.add_node("triage", triage_node)
+    workflow.add_node("direct_generate", direct_generate_node)
     workflow.add_node("retrieve", retrieve_node)
     workflow.add_node("rerank", rerank_node)
     workflow.add_node("grade", grade_node)
     workflow.add_node("rewrite", rewrite_node)
     workflow.add_node("generate", generate_node)
 
+    # Entry point & intent routing
+    workflow.set_entry_point("triage")
+    workflow.add_conditional_edges(
+        "triage",
+        decide_intent_route,
+        {
+            "direct_generate": "direct_generate",
+            "retrieve": "retrieve",
+        },
+    )
+
+    # Direct conversation termination
+    workflow.add_edge("direct_generate", END)
+
     # Two-stage retrieval edges: retrieve -> rerank -> grade
-    workflow.set_entry_point("retrieve")
     workflow.add_edge("retrieve", "rerank")
     workflow.add_edge("rerank", "grade")
 
@@ -70,7 +103,7 @@ def build_rag_graph() -> CompiledStateGraph:
     # Self-correction loop: rewrite feeds back into retrieve -> rerank -> grade
     workflow.add_edge("rewrite", "retrieve")
 
-    # Terminal node
+    # Grounded answer termination
     workflow.add_edge("generate", END)
 
     return workflow.compile()
@@ -85,6 +118,7 @@ def run_rag_query(question: str) -> QueryResponse:
         "retrieved_chunks": [],
         "confidence_score": 0.0,
         "rewritten_question": None,
+        "intent": None,
         "answer": "",
         "retry_count": 0,
     }
@@ -97,3 +131,4 @@ def run_rag_query(question: str) -> QueryResponse:
         sources=final_state.get("retrieved_chunks", []),
         confidence=final_state.get("confidence_score", 0.0),
     )
+

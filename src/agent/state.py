@@ -13,5 +13,7 @@ class RAGState(TypedDict, total=False):
     confidence_score: float
     rewritten_question: Optional[str]
     rerank_scores: Optional[List[float]]
+    intent: Optional[str]
     answer: str
     retry_count: int
+

@@ -41,7 +41,10 @@ class QdrantVectorStore:
 
             settings = get_settings()
             self.collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
-            self.vector_dim = getattr(settings, "EMBEDDING_DIM", settings.GEMINI_EMBEDDING_DIM)
+            if settings.EMBEDDING_PROVIDER.lower() == "gemini":
+                self.vector_dim = getattr(settings, "GEMINI_EMBEDDING_DIM", 384)
+            else:
+                self.vector_dim = getattr(settings, "EMBEDDING_DIM", 384)
 
             # Disk storage preferred over in-memory for persistent document RAG
             self.is_remote = bool(url or settings.QDRANT_URL)
@@ -62,9 +65,46 @@ class QdrantVectorStore:
         collection_name: Optional[str] = None,
         vector_dim: Optional[int] = None,
     ) -> None:
-        """Create Qdrant collection and payload indexes if they do not already exist."""
+        """Create Qdrant collection and payload indexes if they do not already exist.
+        
+        Automatically detects if an existing on-disk collection has a mismatched
+        vector dimension (e.g. legacy 768-dim vs current 384-dim) and recreates it
+        to prevent numpy broadcasting errors.
+        """
         target_collection = collection_name or self.collection_name
         target_dim = vector_dim or self.vector_dim
+
+        if self.client.collection_exists(collection_name=target_collection):
+            try:
+                col_info = self.client.get_collection(collection_name=target_collection)
+                vectors_cfg = col_info.config.params.vectors
+                existing_dim = getattr(vectors_cfg, "size", None)
+                if existing_dim is None and isinstance(vectors_cfg, dict):
+                    existing_dim = getattr(next(iter(vectors_cfg.values())), "size", None)
+
+                if existing_dim is not None and existing_dim != target_dim:
+                    print(
+                        f"[QdrantVectorStore] Dimension mismatch detected in '{target_collection}': "
+                        f"collection on disk has size={existing_dim}, but active embedder requires size={target_dim}. "
+                        f"Recreating collection to match {target_dim} dimensions..."
+                    )
+                    self.client.delete_collection(collection_name=target_collection)
+                    self.client.create_collection(
+                        collection_name=target_collection,
+                        vectors_config=models.VectorParams(
+                            size=target_dim,
+                            distance=models.Distance.COSINE,
+                        ),
+                    )
+                    if self.is_remote:
+                        self.client.create_payload_index(
+                            collection_name=target_collection,
+                            field_name="doc_hash",
+                            field_schema=models.PayloadSchemaType.KEYWORD,
+                        )
+                    return
+            except Exception as e:
+                logger.warning(f"[QdrantVectorStore] Could not inspect collection '{target_collection}': {e}")
 
         if not self.client.collection_exists(collection_name=target_collection):
             self.client.create_collection(
@@ -118,6 +158,12 @@ class QdrantVectorStore:
             return
 
         target_collection = collection_name or self.collection_name
+        if vectors:
+            actual_dim = len(vectors[0])
+            if actual_dim != self.vector_dim:
+                self.vector_dim = actual_dim
+            self.ensure_collection(collection_name=target_collection, vector_dim=actual_dim)
+
         points: List[models.PointStruct] = []
 
         for chunk, vector in zip(chunks, vectors):

@@ -32,7 +32,7 @@ class LLMClient:
         settings = get_settings()
         self.provider = (provider or settings.LLM_PROVIDER).lower()
         self.groq_api_key = groq_api_key or settings.GROQ_API_KEY
-        self.groq_model = groq_model or settings.GROQ_MODEL
+        self.groq_model = groq_model or getattr(settings, "GROQ_MODEL", "qwen/qwen3.8-27b")
         self.gemini_api_key = gemini_api_key or settings.GEMINI_API_KEY
         self.gemini_model = gemini_model or settings.GEMINI_MODEL
         self.default_temp = settings.GROQ_TEMPERATURE
@@ -52,14 +52,16 @@ class LLMClient:
             try:
                 return self._call_groq(prompt, system_prompt, json_mode, temp)
             except Exception as e:
-                logger.warning(f"[LLMClient] Groq call failed ({e}). Checking fallback options.")
+                logger.warning(f"[LLMClient] Groq call failed ({e}). Using offline mock fallback.")
+                return self._generate_mock(prompt, system_prompt, json_mode)
 
-        # Try Gemini if selected or as fallback
-        if self.gemini_api_key:
+        # Try Gemini ONLY if explicitly selected as provider
+        if self.provider == "gemini" and self.gemini_api_key:
             try:
                 return self._call_gemini(prompt, system_prompt, json_mode, temp)
             except Exception as e:
-                logger.warning(f"[LLMClient] Gemini call failed ({e}). Checking mock fallback.")
+                logger.warning(f"[LLMClient] Gemini call failed ({e}). Using offline mock fallback.")
+                return self._generate_mock(prompt, system_prompt, json_mode)
 
         # Offline deterministic mock fallback
         return self._generate_mock(prompt, system_prompt, json_mode)
@@ -71,7 +73,7 @@ class LLMClient:
         json_mode: bool,
         temperature: float,
     ) -> str:
-        """Call Groq OpenAI-compatible chat completions REST endpoint."""
+        """Call Groq OpenAI-compatible chat completions REST endpoint exclusively with qwen/qwen3.8-27b."""
         api_key = (self.groq_api_key or "").strip()
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -84,35 +86,25 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Try specified model, fallback to alternative models if 404
-        models_to_try = [self.groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-        models_to_try = list(dict.fromkeys(m for m in models_to_try if m))
+        # Exclusively route all Groq requests to qwen/qwen3.8-27b
+        target_model = self.groq_model or "qwen/qwen3.8-27b"
 
-        last_err = None
-        for model_name in models_to_try:
-            payload: Dict[str, Any] = {
-                "model": model_name,
-                "messages": messages,
-                "temperature": temperature,
-            }
-            if json_mode:
-                payload["response_format"] = {"type": "json_object"}
+        payload: Dict[str, Any] = {
+            "model": target_model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
 
-            try:
-                with httpx.Client(timeout=45.0) as client:
-                    resp = client.post(url, headers=headers, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        return data["choices"][0]["message"]["content"].strip()
-                    else:
-                        print(f"[LLMClient] Groq error ({model_name}) HTTP {resp.status_code}: {resp.text}")
-                        last_err = f"Groq {model_name} HTTP {resp.status_code}: {resp.text}"
-                        if resp.status_code != 404:
-                            break
-            except Exception as e:
-                last_err = str(e)
-
-        raise RuntimeError(last_err or "All Groq model attempts failed.")
+        with httpx.Client(timeout=45.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+            else:
+                print(f"[LLMClient] Groq error ({target_model}) HTTP {resp.status_code}: {resp.text}")
+                raise RuntimeError(f"Groq {target_model} HTTP {resp.status_code}: {resp.text}")
 
     def _call_gemini(
         self,
@@ -123,7 +115,7 @@ class LLMClient:
     ) -> str:
         """Call Google Gemini REST endpoint with model fallback."""
         api_key = (self.gemini_api_key or "").strip()
-        models_to_try = [self.gemini_model, "gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]
+        models_to_try = [self.gemini_model, "gemini-3.6-flash", "gemini-flash-latest", "gemini-1.5-flash"]
         models_to_try = list(dict.fromkeys(m for m in models_to_try if m))
 
         last_err = None
@@ -169,6 +161,22 @@ class LLMClient:
         json_mode: bool,
     ) -> str:
         """Deterministic fallback when external LLM calls fail or keys are invalid."""
+        # 0. Triage / Intent Classification (JSON Mode)
+        if json_mode and "query router" in (system_prompt or "").lower():
+            q_match = re.search(r"User Query:\s*(.+?)(?:\n|$)", prompt)
+            q_text = (q_match.group(1).lower() if q_match else prompt.lower()).strip()
+            direct_triggers = ["hi", "hello", "hey", "good morning", "good evening", "who are you", "what can you do", "help", "how are you"]
+            is_direct = any(re.search(rf"\b{re.escape(t)}\b", q_text) for t in direct_triggers)
+            if is_direct or len(q_text.split()) <= 2 and ("hi" in q_text or "hello" in q_text):
+                return json.dumps({
+                    "intent": "direct",
+                    "reason": f"Conversational greeting or general capabilities query: '{q_text}'"
+                })
+            return json.dumps({
+                "intent": "retrieval",
+                "reason": f"Factual or domain-specific query requiring indexed document context: '{q_text}'"
+            })
+
         # 1. JSON Mode (Grade Node)
         if json_mode:
             if "[No document excerpts available]" in prompt or "irrelevant_test_marker" in prompt:
@@ -177,6 +185,7 @@ class LLMClient:
                     "confidence": 0.15,
                     "reason": "No document excerpts retrieved for this query."
                 })
+
 
             q_match = re.search(r"Question:\s*(.+?)\n", prompt, re.DOTALL)
             question_text = q_match.group(1).lower() if q_match else ""
@@ -213,7 +222,16 @@ class LLMClient:
             cleaned = re.sub(r"[^\w\s]", "", cleaned).strip()
             return f"{cleaned} architecture specifications"
 
+        # 2.5 Direct Conversational Response Generation
+        if "conversational greetings" in (system_prompt or "").lower():
+            return (
+                "Hello! I am your Enterprise Knowledge Assistant. "
+                "I can explain system architectures, extract facts with citations, and summarize technical topics from your indexed documents. "
+                "How can I help you today?"
+            )
+
         # 3. Grounded Answer Generation
+
         q_match = re.search(r"Question:\s*(.+?)\n\nContext Excerpts:", prompt, re.DOTALL)
         question_text = q_match.group(1).strip() if q_match else "your question"
         query_words = [w.lower() for w in re.findall(r"\w+", question_text) if len(w) > 3]

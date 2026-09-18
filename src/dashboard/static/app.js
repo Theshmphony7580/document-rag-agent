@@ -11,7 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const statRerankerModel = document.getElementById("statRerankerModel");
   const statLlmModel = document.getElementById("statLlmModel");
   const statThreshold = document.getElementById("statThreshold");
-  
+
   const refreshDocsBtn = document.getElementById("refreshDocsBtn");
   const documentTableBody = document.getElementById("documentTableBody");
   const dropzone = document.getElementById("dropzone");
@@ -23,6 +23,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const executionTimer = document.getElementById("executionTimer");
 
   // Circuit Nodes
+  const nodeTriage = document.getElementById("nodeTriage");
+  const metricTriage = document.getElementById("metricTriage");
   const nodeRetrieve = document.getElementById("nodeRetrieve");
   const metricRetrieve = document.getElementById("metricRetrieve");
   const nodeRerank = document.getElementById("nodeRerank");
@@ -55,12 +57,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       statTotalDocs.textContent = data.total_documents || 0;
       statTotalVectors.textContent = (data.total_vectors || 0).toLocaleString();
-      statEmbedModel.textContent = data.embedding_model || "BAAI/bge-base-en-v1.5";
+      const embDevice = (data.embedding_device || "cuda").toUpperCase();
+      statEmbedModel.textContent = `${data.embedding_model || "BAAI/bge-small-en-v1.5"} [${embDevice}]`;
       if (statRerankerModel) {
-        statRerankerModel.textContent = data.reranker_model || "bge-reranker-base";
+        const rrDevice = (data.reranker_device || "cuda").toUpperCase();
+        statRerankerModel.textContent = `${data.reranker_model || "bge-reranker-small"} [${rrDevice}]`;
       }
       statLlmModel.textContent = `${data.llm_provider.toUpperCase()} (${data.llm_model})`;
-      
+
       systemThreshold = data.confidence_threshold || 0.70;
       statThreshold.textContent = systemThreshold.toFixed(2);
     } catch (err) {
@@ -212,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     submitQueryBtn.disabled = true;
     resetCircuitState();
-    
+
     // Start stopwatch
     let startTime = Date.now();
     executionTimer.textContent = "IN-FLIGHT (0.0s)";
@@ -221,12 +225,16 @@ document.addEventListener("DOMContentLoaded", () => {
       executionTimer.textContent = `IN-FLIGHT (${elapsed}s)`;
     }, 100);
 
-    // Set initial retrieve node active
-    nodeRetrieve.className = "circuit-node active";
-    metricRetrieve.textContent = "SEARCHING QDRANT...";
+    // Set initial triage node active
+    if (nodeTriage) {
+      nodeTriage.className = "circuit-node active";
+      metricTriage.textContent = "CLASSIFYING...";
+    }
+    nodeRetrieve.className = "circuit-node";
+    metricRetrieve.textContent = "STANDBY";
     if (nodeRerank) {
-      nodeRerank.className = "circuit-node active";
-      metricRerank.textContent = "STANDBY (CROSS-ENCODER)";
+      nodeRerank.className = "circuit-node";
+      metricRerank.textContent = "STANDBY";
     }
 
     try {
@@ -256,15 +264,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function resetCircuitState() {
-    [nodeRetrieve, nodeRerank, nodeGrade, nodeGenerate, nodeRewrite].forEach(n => {
+    [nodeTriage, nodeRetrieve, nodeRerank, nodeGrade, nodeGenerate, nodeRewrite].forEach(n => {
       if (n) n.className = "circuit-node";
     });
+    if (metricTriage) metricTriage.textContent = "IDLE";
     metricRetrieve.textContent = "IDLE";
     if (metricRerank) metricRerank.textContent = "IDLE";
     metricGrade.textContent = "SCORE: --";
     metricGenerate.textContent = "IDLE";
     metricRewrite.textContent = "RETRY: 0/2";
-    
+
     gaugeFill.style.width = "0%";
     confidenceReadout.textContent = `0.00 / ${systemThreshold.toFixed(2)} [IN-FLIGHT]`;
     outputBody.innerHTML = `<p class="mono text-muted">Executing LangGraph reasoning loops...</p>`;
@@ -278,44 +287,67 @@ document.addEventListener("DOMContentLoaded", () => {
     outputLatency.textContent = `${trace.total_latency_ms} ms`;
 
     // 1. Update Circuit Blocks
-    const retStep = trace.steps_trace ? trace.steps_trace.find(s => s.node === "retrieve") : null;
-    const rerankStep = trace.steps_trace ? trace.steps_trace.find(s => s.node === "rerank") : null;
-
-    nodeRetrieve.className = "circuit-node pass";
-    if (retStep && retStep.details) {
-      const match = retStep.details.match(/\d+/);
-      metricRetrieve.textContent = match ? `FOUND ${match[0]} CANDIDATES` : `FOUND ${trace.retrieved_chunks.length} CHUNKS`;
-    } else {
-      metricRetrieve.textContent = `FOUND ${trace.retrieved_chunks.length} CHUNKS`;
-    }
-
-    if (nodeRerank) {
-      nodeRerank.className = "circuit-node pass";
-      if (rerankStep) {
-        metricRerank.textContent = `TOP ${trace.retrieved_chunks.length} RESCORED`;
-      } else {
-        metricRerank.textContent = `TOP ${trace.retrieved_chunks.length} PRUNED`;
-      }
+    const triageStep = trace.steps_trace ? trace.steps_trace.find(s => s.node === "triage") : null;
+    if (nodeTriage) {
+      nodeTriage.className = "circuit-node pass";
+      metricTriage.textContent = triageStep && triageStep.intent ? triageStep.intent.toUpperCase() : "RESOLVED";
     }
 
     const scoreVal = trace.confidence_score;
     const isPass = scoreVal >= trace.threshold;
 
-    nodeGrade.className = `circuit-node ${isPass ? "pass" : "warn"}`;
-    metricGrade.textContent = `SCORE: ${scoreVal.toFixed(2)}`;
-
-    if (trace.retries_count > 0) {
-      nodeRewrite.className = "circuit-node branch-node warn";
-      metricRewrite.textContent = `RETRY: ${trace.retries_count}/2`;
-    } else {
+    const isDirect = triageStep && triageStep.intent === "direct";
+    if (isDirect) {
+      nodeRetrieve.className = "circuit-node";
+      metricRetrieve.textContent = "BYPASSED";
+      if (nodeRerank) {
+        nodeRerank.className = "circuit-node";
+        metricRerank.textContent = "BYPASSED";
+      }
+      nodeGrade.className = "circuit-node pass";
+      metricGrade.textContent = "BYPASS (1.00)";
       nodeRewrite.className = "circuit-node branch-node";
-      metricRewrite.textContent = "RETRY: 0/2 (NONE)";
+      metricRewrite.textContent = "BYPASSED";
+      nodeGenerate.className = "circuit-node pass";
+      metricGenerate.textContent = "DIRECT ANSWER";
+    } else {
+      const retStep = trace.steps_trace ? trace.steps_trace.find(s => s.node === "retrieve") : null;
+      const rerankStep = trace.steps_trace ? trace.steps_trace.find(s => s.node === "rerank") : null;
+
+      nodeRetrieve.className = "circuit-node pass";
+      if (retStep && retStep.details) {
+        const match = retStep.details.match(/\d+/);
+        metricRetrieve.textContent = match ? `FOUND ${match[0]} CANDIDATES` : `FOUND ${(trace.retrieved_chunks || []).length} CHUNKS`;
+      } else {
+        metricRetrieve.textContent = `FOUND ${(trace.retrieved_chunks || []).length} CHUNKS`;
+      }
+
+      if (nodeRerank) {
+        nodeRerank.className = "circuit-node pass";
+        if (rerankStep) {
+          metricRerank.textContent = `TOP ${(trace.retrieved_chunks || []).length} RESCORED`;
+        } else {
+          metricRerank.textContent = `TOP ${(trace.retrieved_chunks || []).length} PRUNED`;
+        }
+      }
+
+      nodeGrade.className = `circuit-node ${isPass ? "pass" : "warn"}`;
+      metricGrade.textContent = `SCORE: ${scoreVal.toFixed(2)}`;
+
+      if (trace.retries_count > 0) {
+        nodeRewrite.className = "circuit-node branch-node warn";
+        metricRewrite.textContent = `RETRY: ${trace.retries_count}/2`;
+      } else {
+        nodeRewrite.className = "circuit-node branch-node";
+        metricRewrite.textContent = "RETRY: 0/2 (NONE)";
+      }
+
+      nodeGenerate.className = `circuit-node ${isPass ? "pass" : "warn"}`;
+      metricGenerate.textContent = isPass ? "GROUNDED ANSWER" : "REFUSAL TRIGGERED";
     }
 
-    nodeGenerate.className = `circuit-node ${isPass ? "pass" : "warn"}`;
-    metricGenerate.textContent = isPass ? "GROUNDED ANSWER" : "REFUSAL TRIGGERED";
-
     // 2. Animate Confidence Gauge
+
     const percent = Math.min(100, Math.max(0, scoreVal * 100));
     gaugeFill.style.width = `${percent}%`;
     const statusText = isPass ? "[PASS]" : "[BELOW GATE]";
@@ -359,7 +391,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const cosineStr = c.score !== null && c.score !== undefined ? `Cosine: ${c.score.toFixed(4)}` : "Cosine: N/A";
       const rerankStr = c.rerank_score !== null && c.rerank_score !== undefined ? ` | Rerank: ${c.rerank_score.toFixed(4)}` : "";
       const pageStr = (c.page_numbers && c.page_numbers.length) ? `Pages: [${c.page_numbers.join(", ")}]` : "Page: 1";
-      
+
       const card = document.createElement("div");
       card.className = "chunk-card";
       card.innerHTML = `
