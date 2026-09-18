@@ -180,9 +180,10 @@ def list_documents() -> List[Dict[str, Any]]:
 @app.post("/api/ingest")
 def ingest_document(payload: IngestPayload) -> Dict[str, Any]:
     """Ingest a specific file located in data/ directory."""
-    target_file = DATA_DIR / payload.filename
+    safe_filename = Path(payload.filename).name
+    target_file = DATA_DIR / safe_filename
     if not target_file.exists():
-        raise HTTPException(status_code=404, detail=f"File '{payload.filename}' not found in data/ directory.")
+        raise HTTPException(status_code=404, detail=f"File '{safe_filename}' not found in data/ directory.")
 
     try:
         pipeline = IngestionPipeline(vector_store=_SHARED_VECTOR_STORE)
@@ -202,11 +203,13 @@ def ingest_document(payload: IngestPayload) -> Dict[str, Any]:
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...), auto_ingest: bool = True) -> Dict[str, Any]:
     """Upload a document to data/ directory with optional immediate ingestion."""
-    destination = DATA_DIR / file.filename
+    safe_filename = Path(file.filename).name if file.filename else "uploaded_file"
+    destination = DATA_DIR / safe_filename
     with destination.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     doc_hash = compute_file_sha256(str(destination))
+
 
     if auto_ingest:
         try:

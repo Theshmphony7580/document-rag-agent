@@ -213,12 +213,19 @@ document-rag/
 - [x] Fixed Hugging Face 401 RepositoryNotFoundError for reranker: corrected non-existent `BAAI/bge-reranker-small` to `BAAI/bge-reranker-base` in [`.env`](.env), added automatic name normalization and lightweight `cross-encoder/ms-marco-MiniLM-L-6-v2` / FlashRank fallback support in [`src/agent/reranker.py`](src/agent/reranker.py).
 - [x] Standardized Groq LLM inference model to `qwen/qwen3.8-27b` across [`config.py`](src/config.py), [`.env`](.env), [`.env.example`](.env.example), [`llm.py`](src/agent/llm.py), and frontend console telemetry ([`index.html`](src/dashboard/static/index.html)).
 - [x] Exclusively routed all Groq requests to `qwen/qwen3.8-27b` in [`src/agent/llm.py`](src/agent/llm.py), with fallback to Gemini strictly prohibited when `LLM_PROVIDER=groq`.
-- [ ] **IN PROGRESS: Intent Classification / Triage Node:**
-  - Designed `TRIAGE_SYSTEM_PROMPT` and `TRIAGE_USER_TEMPLATE` to classify queries into `direct` vs `retrieval`.
-  - Designed `triage_node` and `direct_generate_node` for [`src/agent/nodes.py`](src/agent/nodes.py) to bypass vector retrieval for conversational queries.
-  - Formulated LangGraph conditional routing in [`src/agent/graph.py`](src/agent/graph.py) and telemetry integration in [`src/dashboard/server.py`](src/dashboard/server.py).
-- [ ] **REMAINING MILESTONE OPTIONS:**
+- [x] Implemented Intent Classification / Triage Node:
+  - Added `TRIAGE_SYSTEM_PROMPT` and `DIRECT_GENERATE_SYSTEM_PROMPT` in [`src/agent/prompts.py`](src/agent/prompts.py).
+  - Implemented `triage_node` and `direct_generate_node` in [`src/agent/nodes.py`](src/agent/nodes.py).
+  - Extended `RAGState` with `intent` in [`src/agent/state.py`](src/agent/state.py).
+  - Wired conditional entry routing (`decide_intent_route`) in [`src/agent/graph.py`](src/agent/graph.py).
+  - Integrated `00 // TRIAGE` circuit node and bypass animations into [`server.py`](src/dashboard/server.py) and [`static/`](src/dashboard/static/).
+- [x] Conducted comprehensive codebase audit:
+  - Fixed missing `logger` definition in [`src/storage/vector_store.py`](src/storage/vector_store.py) (preventing potential `NameError`).
+  - Patched path traversal risks in `/api/ingest` and `/api/upload` via `Path(filename).name` in [`src/dashboard/server.py`](src/dashboard/server.py).
+  - Hardened frontend chunk drawer against null/undefined chunk payloads in [`src/dashboard/static/app.js`](src/dashboard/static/app.js).
+- [ ] **NEXT MILESTONE OPTIONS:**
   1. **Hybrid Retrieval (Dense + BM25 with Reciprocal Rank Fusion - RRF):** PRD §4 Step 3 parallel sparse + dense retrieval before cross-encoder reranking.
   2. **Multi-Turn Conversational Memory:** Enable session-scoped chat history in LangGraph state & UI.
   3. **Continuous RAG Triad Evaluation:** Real-time Context Relevance, Faithfulness, and Answer Relevance scoring in the telemetry console.
+
 

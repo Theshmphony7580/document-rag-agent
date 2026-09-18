@@ -379,12 +379,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderChunks(chunks) {
-    chunkBadge.textContent = `${chunks.length} CHUNKS`;
+    const list = chunks || [];
+    chunkBadge.textContent = `${list.length} CHUNKS`;
 
-    if (!chunks || chunks.length === 0) {
+    if (list.length === 0) {
       chunksList.innerHTML = `<div class="chunk-empty mono">No chunks retrieved for this query.</div>`;
       return;
     }
+
 
     chunksList.innerHTML = "";
     chunks.forEach((c, idx) => {

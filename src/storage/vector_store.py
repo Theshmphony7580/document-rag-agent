@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import uuid
@@ -8,8 +9,11 @@ from qdrant_client import QdrantClient, models
 from schemas import DocumentChunk
 from config import get_settings
 
+logger = logging.getLogger(__name__)
+
 _STORE_LOCK = threading.RLock()
 _GLOBAL_VECTOR_STORE: Optional["QdrantVectorStore"] = None
+
 
 
 class QdrantVectorStore:
