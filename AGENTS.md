@@ -154,6 +154,7 @@ document-rag/
 | [`src/dashboard/server.py`](src/dashboard/server.py) | Done | Lightweight FastAPI REST backend with reranker telemetry & live query execution |
 | [`src/dashboard/static/`](src/dashboard/static/) | Done | Precision Observability Console SPA with reranker circuit node and score badges |
 | [`main.py`](main.py) | Done | Root entry point launching Uvicorn server on http://127.0.0.1:8000 |
+| [`README.md`](README.md) | Done | Production-grade architectural documentation, setup guide, and API reference |
 
 ---
 
@@ -223,6 +224,7 @@ document-rag/
   - Fixed missing `logger` definition in [`src/storage/vector_store.py`](src/storage/vector_store.py) (preventing potential `NameError`).
   - Patched path traversal risks in `/api/ingest` and `/api/upload` via `Path(filename).name` in [`src/dashboard/server.py`](src/dashboard/server.py).
   - Hardened frontend chunk drawer against null/undefined chunk payloads in [`src/dashboard/static/app.js`](src/dashboard/static/app.js).
+- [x] Authored production-grade technical [`README.md`](README.md) documenting system architecture, setup, environment configs, telemetry API reference, and Windows/CUDA troubleshooting.
 - [ ] **NEXT MILESTONE OPTIONS:**
   1. **Hybrid Retrieval (Dense + BM25 with Reciprocal Rank Fusion - RRF):** PRD §4 Step 3 parallel sparse + dense retrieval before cross-encoder reranking.
   2. **Multi-Turn Conversational Memory:** Enable session-scoped chat history in LangGraph state & UI.
