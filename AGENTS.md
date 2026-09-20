@@ -8,7 +8,7 @@
 ---
 
 ## Project Overview
-- **Project:** Enterprise Document RAG Agent
+- **Project:** ANRI (Enterprise Document RAG Agent)
 - **Core Orchestrator:** LangGraph state graph with dynamic self-correction loops
 - **Vector Database:** Qdrant (local `:memory:` / directory / remote server)
 - **Embedding Model:** Local Hugging Face (`BAAI/bge-small-en-v1.5`, 384-dim) via `sentence-transformers` (with Gemini API & deterministic test fallbacks)
@@ -100,7 +100,7 @@
 ## File Structure & Map
 
 ```
-document-rag/
+anri/
 ├── .env.example                       # Environment variable templates
 ├── .gitignore                         # Git ignore file (excludes qdrant_data/, .venv)
 ├── AGENTS.md                          # Context, rules & progress tracking
@@ -225,6 +225,7 @@ document-rag/
   - Patched path traversal risks in `/api/ingest` and `/api/upload` via `Path(filename).name` in [`src/dashboard/server.py`](src/dashboard/server.py).
   - Hardened frontend chunk drawer against null/undefined chunk payloads in [`src/dashboard/static/app.js`](src/dashboard/static/app.js).
 - [x] Authored production-grade technical [`README.md`](README.md) documenting system architecture, setup, environment configs, telemetry API reference, and Windows/CUDA troubleshooting.
+- [x] Renamed project to **ANRI** across `pyproject.toml`, `README.md`, FastAPI backend title, and observability console UI branding.
 - [ ] **NEXT MILESTONE OPTIONS:**
   1. **Hybrid Retrieval (Dense + BM25 with Reciprocal Rank Fusion - RRF):** PRD §4 Step 3 parallel sparse + dense retrieval before cross-encoder reranking.
   2. **Multi-Turn Conversational Memory:** Enable session-scoped chat history in LangGraph state & UI.

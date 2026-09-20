@@ -1,7 +1,7 @@
 [project]
-name = "document-rag-2"
+name = "anri"
 version = "0.1.0"
-description = "Add your description here"
+description = "ANRI - Enterprise Document RAG Agent with Self-Correction and Precision Observability"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

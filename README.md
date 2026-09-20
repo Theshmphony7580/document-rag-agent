@@ -1,4 +1,4 @@
-# Enterprise Document RAG Agent
+# ANRI - Enterprise Document RAG Agent
 
 A production-grade, self-correcting Retrieval-Augmented Generation (RAG) system built with **LangGraph**, **IBM Docling**, **Qdrant**, and a **Two-Stage Retrieval** pipeline (Dense Embeddings + Cross-Encoder Reranking).
 
@@ -79,7 +79,7 @@ flowchart LR
 ## Repository Structure
 
 ```
-document-rag/
+anri/
 ├── main.py                            # Production application launcher (Uvicorn server)
 ├── test_agent_graph.py                # End-to-end integration test suite
 ├── list_gemini_models.py              # Utility to inspect Gemini API quotas & models
@@ -129,8 +129,8 @@ document-rag/
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-org/document-rag.git
-cd document-rag
+git clone https://github.com/your-org/anri.git
+cd anri
 ```
 
 ### 2. Set Up Virtual Environment & Dependencies
@@ -350,4 +350,4 @@ os.environ["MKL_NUM_THREADS"] = "1"
 
 ## License
 
-Enterprise Document RAG Agent is licensed under the [Apache-2.0 License](LICENSE).
+ANRI (Enterprise Document RAG Agent) is licensed under the [Apache-2.0 License](LICENSE).

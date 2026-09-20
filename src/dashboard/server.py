@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Document RAG - Precision Observability Console",
+    title="ANRI // Precision Observability Console",
     version="1.0.0",
     lifespan=lifespan,
 )
